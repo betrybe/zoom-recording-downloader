@@ -81,6 +81,7 @@ RECORDING_START_DATE = parser.parse(config("Recordings", "start_date", f"{RECORD
 RECORDING_END_DATE = parser.parse(config("Recordings", "end_date", str(date.today()))).replace(tzinfo=timezone.utc)
 DOWNLOAD_DIRECTORY = config("Storage", "download_dir", 'downloads')
 COMPLETED_MEETING_IDS_LOG = config("Storage", "completed_log", 'completed-downloads.log')
+VERBOSE_URL = config("Storage", "verbose_url", False)
 COMPLETED_MEETING_IDS = set()
 
 MEETING_TIMEZONE = ZoneInfo(config("Recordings", "timezone", 'UTC'))
@@ -95,6 +96,12 @@ GDRIVE_ROOT_FOLDER = config("GoogleDrive", "root_folder_name", "zoom-recording-d
 GDRIVE_RETRY_DELAY = int(config("GoogleDrive", "retry_delay", "5"))
 GDRIVE_MAX_RETRIES = int(config("GoogleDrive", "max_retries", "3"))
 GDRIVE_FAILED_LOG = config("GoogleDrive", "failed_log", "failed-uploads.log")
+
+# new: should we delete Zoom cloud recordings once downloaded?
+DELETE_AFTER_DOWNLOAD = config("Storage", "delete_after_download", False)
+
+ACCESS_TOKEN = None
+AUTHORIZATION_HEADER = {}
 
 def setup_google_drive():
     """Initialize Google Drive client with OAuth authentication"""
@@ -139,6 +146,8 @@ def load_access_token():
 
     response = json.loads(requests.request("POST", url, headers=headers).text)
 
+    
+
     global ACCESS_TOKEN
     global AUTHORIZATION_HEADER
 
@@ -150,7 +159,9 @@ def load_access_token():
         }
 
     except KeyError:
-        print(f"{Color.RED}### The key 'access_token' wasn't found.{Color.END}")
+        print(f"{Color.RED}### The key 'access_token' wasn't found.{Color.END}")        
+        print(f"Response: {response}")
+        system.exit(1)
 
 
 def get_users():
@@ -326,6 +337,21 @@ def handle_graceful_shutdown(signal_received, frame):
 
     system.exit(0)
 
+def delete_recording(meeting_id: str, recording_id: str):
+    """Delete the cloud recording for a given meeting ID."""
+    url = f"https://api.zoom.us/v2/meetings/{meeting_id}/recordings/{recording_id}"
+    resp = requests.delete(url=url, headers=AUTHORIZATION_HEADER)
+    if resp.ok:
+        print(f"{Color.GREEN}### Deleted cloud recording RecordingID {recording_id} for MeetingID {meeting_id}{Color.END}")
+    else:
+        print(f"{Color.RED}### Failed to delete cloud recording {recording_id} for MeetingID {meeting_id}: "
+              f"{resp.status_code} {resp.text}{Color.END}")
+
+def log(message):
+    with open(COMPLETED_MEETING_IDS_LOG, 'a') as log_file:
+        log_file.write(message)
+        log_file.flush()
+
 
 # ################################################################
 # #                        MAIN                                  #
@@ -379,6 +405,7 @@ def main():
 
     load_access_token()
     load_completed_meeting_ids()
+    log(f"*************** Start {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ***************\n")
 
     print(f"{Color.BOLD}Getting user accounts...{Color.END}")
     users = get_users()
@@ -396,6 +423,10 @@ def main():
         for index, recording in enumerate(recordings):
             try:
                 recording_id = recording["uuid"]
+                meeting_id = recording["id"]
+                topic = recording["topic"]
+                start_time = recording["start_time"]
+                duration = recording["duration"]
 
                 if recording_id in COMPLETED_MEETING_IDS:
                     print(
@@ -446,11 +477,18 @@ def main():
                         f"for recording {index + 1} of {total_count} due to error: "
                         f"{str(e)}{Color.END}"
                     )
-                    continue
+                    continue                
 
-            with open(COMPLETED_MEETING_IDS_LOG, "a") as fd:
-                fd.write(f"{recording_id}\n")
+                if VERBOSE_URL:
+                    log(f"** Downloaded {recording_id} from \n\t{download_url}\n\t to {full_filename}\n")
+                else:
+                    log(f"** Downloaded {recording_id} to {full_filename}\n")
                 COMPLETED_MEETING_IDS.add(recording_id)
+                
+                if DELETE_AFTER_DOWNLOAD:
+                    delete_recording(meeting_id,recording_id)
+                    log(f"** >> Deleted recording {meeting_id,recording_id} - {start_time} - {topic} - {duration} Zoom cloud\n")
+                    
 
 
 if __name__ == "__main__":

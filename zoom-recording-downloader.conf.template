@@ -7,7 +7,9 @@
     "_comment": "everything after this is optional",
     "Storage": {
         "completed_log": "completed-downloads.log",
-        "download_dir": "downloads"
+        "verbose_url": false,
+        "download_dir": "downloads",
+        "delete_after_download": false
     },
     "GoogleDrive": {
         "_comment": "Optional: Only needed if using Google Drive upload feature",

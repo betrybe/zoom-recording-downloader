@@ -5,10 +5,10 @@
 
 **Zoom Recording Downloader** is a cross-platform Python app that utilizes Zoom's API (v2) to download and organize all cloud recordings from a Zoom Business account to local storage or Google Drive.
 
-## Screenshot ##
+## Screenshot
 ![screenshot](screenshot.png)
 
-## Installation ##
+# Installation
 
 _Attention: You will need [Python 3.11](https://www.python.org/downloads/) or greater_
 
@@ -18,16 +18,47 @@ $ cd zoom-recording-downloader
 $ pip3 install -r requirements.txt
 ```
 
-## Usage ##
+# Install via pipx
+1. Install [pipx](https://pypa.github.io/pipx/installation/) if you haven't already
+2. Run pipx.sh to install the script globally
+```sh pipx.sh```
+4. Run ```zoom-recording-downloader``` from anywhere in your terminal
+
+> To uninstall via pipx run ```pipx uninstall zoom-recording-downloader```
+
+# Install and Run via python venv
+1. Run ```zoom-recording-downloader.sh``` to create a virtual environment and install the required packages
+2. Then run ```zoom-recording-downloader.sh``` to run the script
+
+> The shell script will create a virtual environment in the current directory and install the required packages. It will also activate the virtual environment and run the script. You can run the script again by running ```zoom-recording-downloader.sh``` again.
+
+# Usage
 
 _Attention: You will need a [Zoom Developer account](https://marketplace.zoom.us/) in order to create a [Server-to-Server OAuth app](https://developers.zoom.us/docs/internal-apps) with the required credentials_
 
-1. Create a [server-to-server OAuth app](https://marketplace.zoom.us/user/build), set up your app and collect your credentials (`Account ID`, `Client ID`, `Client Secret`). For questions on this, [reference the docs](https://developers.zoom.us/docs/internal-apps/create/) on creating a server-to-server app. Make sure you activate the app. Follow Zoom's [set up documentation](https://marketplace.zoom.us/docs/guides/build/server-to-server-oauth-app/) or [this video](https://www.youtube.com/watch?v=OkBE7CHVzho) for a more complete walk through.
+## 1. Create a [server-to-server OAuth app](https://marketplace.zoom.us/user/build)
+   - Go to [Zoom Marketplace](https://marketplace.zoom.us/)
+   - Sign in with your Zoom account
+   - Click on "Develop" > "Build App"
+   - Choose "Server-to-Server OAuth" and click "Create"
+   - Fill in the required information (app name, company name, etc.)
+   - Click "Create" to create the app
+Set up your app and collect your credentials (`Account ID`, `Client ID`, `Client Secret`). For questions on this, [reference the docs](https://developers.zoom.us/docs/internal-apps/create/) on creating a server-to-server app. Make sure you activate the app. 
 
-2. Add the necessary scopes to your app. In your app's _Scopes_ tab, add the following scopes: 
-    > `cloud_recording:read:list_user_recordings:admin`, `user:read:user:admin`, `user:read:list_users:admin`.
+Follow Zoom's [set up documentation](https://marketplace.zoom.us/docs/guides/build/server-to-server-oauth-app/) or [this video](https://www.youtube.com/watch?v=OkBE7CHVzho) for a more complete walk through.
 
-3. Copy **zoom-recording-downloader.conf.template** to a new file named **zoom-recording-downloader.conf** and fill in your Server-to-Server OAuth app credentials:
+## 2. Add the necessary scopes to your app. 
+In your app's _Scopes_ tab, add the following scopes:
+
+   > `cloud_recording:read:list_user_recordings:admin`, `user:read:user:admin`, `user:read:list_users:admin`.
+
+## 3. Add Delete Scopes
+If you want to delete the downloaded recordings from Zoom's cloud, add the following scopes:
+
+   > `cloud_recording:delete:recording_file, cloud_recording:delete:recording_file:admin`
+
+## 4. Create configuration file
+Copy **zoom-recording-downloader.conf.template** to a new file named *zoom-recording-downloader.conf** and fill in your Server-to-Server OAuth app credentials:
 ```
       {
 	      "OAuth": {
@@ -37,9 +68,8 @@ _Attention: You will need a [Zoom Developer account](https://marketplace.zoom.us
 	      }
       }
 ```
-
-4. You can optionally add other options to the configuration file:
-
+# Optional Configurations
+## Storage Configurations
 - Specify the base **download_dir** under which the recordings will be downloaded (default is 'downloads')
 - Specify the **completed_log** log file that will store the ID's of downloaded recordings (default is 'completed-downloads.log')
 
@@ -52,6 +82,7 @@ _Attention: You will need a [Zoom Developer account](https://marketplace.zoom.us
       }
 ```
 
+## Recording Configurations
 - Specify the **start_date** from which to start downloading meetings (default is Jan 1 of this year)
 - Specify the **end_date** at which to stop downloading meetings (default is today)
 - Dates are specified as YYYY-MM-DD
@@ -106,7 +137,8 @@ _Attention: You will need a [Zoom Developer account](https://marketplace.zoom.us
       }
 ```
 
-For the previous formats you can use the following values
+## File and Folder Format Placeholders
+The following placeholders are available for the **filename** and **folder** formats:
   - **{file_extension}** is the lowercase version of the file extension
   - **{meeting_time}** is the time in the format of **strftime** and **timezone**
   - **{day}** is the day from **meeting_time**
@@ -116,23 +148,23 @@ For the previous formats you can use the following values
   - **{rec_type}** is the type of the recording
   - **{topic}** is the title of the zoom meeting
 
-## Google Drive Setup (Optional) ##
+# Google Drive Setup (Optional)
 
 To enable Google Drive upload support:
 
-1. Create a Google Cloud Project:
+## 1. Create a Google Cloud Project:
    - Go to [Google Cloud Console](https://console.cloud.google.com)
    - Create a new project or select an existing one
    - Enable the Google Drive API for your project ([Click to enable ↗](https://console.cloud.google.com/flows/enableapi?apiid=drive.googleapis.com))
 
-2. Create OAuth 2.0 credentials:
+## 2. Create OAuth 2.0 credentials:
 	- In Cloud Console, go to "APIs & Services" > "Credentials"
 	- Click "Create Credentials" > "OAuth client ID"
 	- Choose "Desktop application" as the application type
 	- Give it a name (e.g., "Zoom Recording Downloader")
 	- Download the JSON file and save as `client_secrets.json` in the script directory
 
-3. Configure OAuth consent screen:
+## 3. Configure OAuth consent screen:
 	- Go to "OAuth consent screen"
 	- Select "External" user type
 	- Set application name to "Zoom Recording Downloader"
@@ -141,7 +173,7 @@ To enable Google Drive upload support:
 		- https://www.googleapis.com/auth/drive.metadata
 		- https://www.googleapis.com/auth/drive.appdata
 
-4. Update your config:
+## 4. Update your config:
 	```json
 	{
 		"GoogleDrive": {
@@ -160,11 +192,9 @@ Consider adding `client_secrets.json` to your .gitignore file.
 
 Note: When you first run the script with Google Drive enabled, it will open your default browser for authentication. After authorizing the application, the token will be saved locally and reused for future runs.
 
-5. Run command:
+## 5. Run command:
 
-```sh
-$ python zoom-recording-downloader.py
-```
+```$ python zoom-recording-downloader.py```
 
 When prompted, choose your preferred storage method:
 1. Local Storage - Saves recordings to your local machine

@@ -42,3 +42,10 @@ token.json
 
 # Ignore Zoom recording downloader credentials
 client_secret.json
+
+# Ingore python venv
+.venv
+
+# If using pipx
+/build
+*.egg-info
