@@ -28,6 +28,7 @@ import tqdm as progress_bar
 from zoneinfo import ZoneInfo
 from google_drive_client import GoogleDriveClient
 
+
 class Color:
     PURPLE = "\033[95m"
     CYAN = "\033[96m"
@@ -39,6 +40,7 @@ class Color:
     BOLD = "\033[1m"
     UNDERLINE = "\033[4m"
     END = "\033[0m"
+
 
 CONF_PATH = "zoom-recording-downloader.conf"
 
@@ -56,15 +58,19 @@ except Exception as e:
     print(f"{Color.RED}### Unexpected error: {e}")
     system.exit(1)
 
-def config(section, key, default=''):
+
+def config(section, key, default=""):
     try:
         return CONF[section][key]
     except KeyError:
         if default == LookupError:
-            print(f"{Color.RED}### No value provided for {section}:{key} in {CONF_PATH}")
+            print(
+                f"{Color.RED}### No value provided for {section}:{key} in {CONF_PATH}"
+            )
             system.exit(1)
         else:
             return default
+
 
 ACCOUNT_ID = config("OAuth", "account_id", LookupError)
 CLIENT_ID = config("OAuth", "client_id", LookupError)
@@ -77,22 +83,40 @@ API_ENDPOINT_USER_LIST = "https://api.zoom.us/v2/users"
 RECORDING_START_YEAR = config("Recordings", "start_year", date.today().year)
 RECORDING_START_MONTH = config("Recordings", "start_month", 1)
 RECORDING_START_DAY = config("Recordings", "start_day", 1)
-RECORDING_START_DATE = parser.parse(config("Recordings", "start_date", f"{RECORDING_START_YEAR}-{RECORDING_START_MONTH}-{RECORDING_START_DAY}")).replace(tzinfo=timezone.utc)
-RECORDING_END_DATE = parser.parse(config("Recordings", "end_date", str(date.today()))).replace(tzinfo=timezone.utc)
-DOWNLOAD_DIRECTORY = config("Storage", "download_dir", 'downloads')
-COMPLETED_MEETING_IDS_LOG = config("Storage", "completed_log", 'completed-downloads.log')
+RECORDING_START_DATE = parser.parse(
+    config(
+        "Recordings",
+        "start_date",
+        f"{RECORDING_START_YEAR}-{RECORDING_START_MONTH}-{RECORDING_START_DAY}",
+    )
+).replace(tzinfo=timezone.utc)
+RECORDING_END_DATE = parser.parse(
+    config("Recordings", "end_date", str(date.today()))
+).replace(tzinfo=timezone.utc)
+DOWNLOAD_DIRECTORY = config("Storage", "download_dir", "downloads")
+COMPLETED_MEETING_IDS_LOG = config(
+    "Storage", "completed_log", "completed-downloads.log"
+)
 VERBOSE_URL = config("Storage", "verbose_url", False)
 COMPLETED_MEETING_IDS = set()
 
-MEETING_TIMEZONE = ZoneInfo(config("Recordings", "timezone", 'UTC'))
-MEETING_STRFTIME = config("Recordings", "strftime", '%Y.%m.%d - %I.%M %p UTC')
-MEETING_FILENAME = config("Recordings", "filename", '{meeting_time} - {topic} - {rec_type} - {recording_id}.{file_extension}')
-MEETING_FOLDER = config("Recordings", "folder", '{topic} - {meeting_time}')
+MEETING_TIMEZONE = ZoneInfo(config("Recordings", "timezone", "UTC"))
+MEETING_STRFTIME = config("Recordings", "strftime", "%Y.%m.%d - %I.%M %p UTC")
+MEETING_FILENAME = config(
+    "Recordings",
+    "filename",
+    "{meeting_time} - {topic} - {rec_type} - {recording_id}.{file_extension}",
+)
+MEETING_FOLDER = config("Recordings", "folder", "{topic} - {meeting_time}")
 
 # Google Drive configuration
 GDRIVE_ENABLED = False
-GDRIVE_CREDENTIALS_FILE = config("GoogleDrive", "credentials_file", "service-account.json")
-GDRIVE_ROOT_FOLDER = config("GoogleDrive", "root_folder_name", "zoom-recording-downloader")
+GDRIVE_CREDENTIALS_FILE = config(
+    "GoogleDrive", "credentials_file", "service-account.json"
+)
+GDRIVE_ROOT_FOLDER = config(
+    "GoogleDrive", "root_folder_name", "zoom-recording-downloader"
+)
 GDRIVE_RETRY_DELAY = int(config("GoogleDrive", "retry_delay", "5"))
 GDRIVE_MAX_RETRIES = int(config("GoogleDrive", "max_retries", "3"))
 GDRIVE_FAILED_LOG = config("GoogleDrive", "failed_log", "failed-uploads.log")
@@ -103,50 +127,54 @@ DELETE_AFTER_DOWNLOAD = config("Storage", "delete_after_download", False)
 ACCESS_TOKEN = None
 AUTHORIZATION_HEADER = {}
 
+
 def setup_google_drive():
     """Initialize Google Drive client with OAuth authentication"""
     try:
-        drive_client = GoogleDriveClient(CONF.get('GoogleDrive', {}))
+        drive_client = GoogleDriveClient(CONF.get("GoogleDrive", {}))
         if not drive_client.authenticate():
-            choice = input("Would you like to continue with local storage instead? (y/n): ")
-            if choice.lower() != 'y':
+            choice = input(
+                "Would you like to continue with local storage instead? (y/n): "
+            )
+            if choice.lower() != "y":
                 system.exit(1)
             return None
-            
+
         if not drive_client.initialize_root_folder():
-            print(f"{Color.RED}### Failed to create root folder in Google Drive{Color.END}")
-            choice = input("Would you like to continue with local storage instead? (y/n): ")
-            if choice.lower() != 'y':
+            print(
+                f"{Color.RED}### Failed to create root folder in Google Drive{Color.END}"
+            )
+            choice = input(
+                "Would you like to continue with local storage instead? (y/n): "
+            )
+            if choice.lower() != "y":
                 system.exit(1)
             return None
-            
+
         return drive_client
     except Exception as e:
         print(f"{Color.RED}### Google Drive initialization failed: {str(e)}{Color.END}")
         choice = input("Would you like to continue with local storage instead? (y/n): ")
-        if choice.lower() != 'y':
+        if choice.lower() != "y":
             system.exit(1)
         return None
 
 
-
-
 def load_access_token():
-    """ OAuth function, thanks to https://github.com/freelimiter
-    """
+    """OAuth function, thanks to https://github.com/freelimiter"""
     url = f"https://zoom.us/oauth/token?grant_type=account_credentials&account_id={ACCOUNT_ID}"
 
     client_cred = f"{CLIENT_ID}:{CLIENT_SECRET}"
-    client_cred_base64_string = base64.b64encode(client_cred.encode("utf-8")).decode("utf-8")
+    client_cred_base64_string = base64.b64encode(client_cred.encode("utf-8")).decode(
+        "utf-8"
+    )
 
     headers = {
         "Authorization": f"Basic {client_cred_base64_string}",
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/x-www-form-urlencoded",
     }
 
     response = json.loads(requests.request("POST", url, headers=headers).text)
-
-    
 
     global ACCESS_TOKEN
     global AUTHORIZATION_HEADER
@@ -155,17 +183,17 @@ def load_access_token():
         ACCESS_TOKEN = response["access_token"]
         AUTHORIZATION_HEADER = {
             "Authorization": f"Bearer {ACCESS_TOKEN}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
     except KeyError:
-        print(f"{Color.RED}### The key 'access_token' wasn't found.{Color.END}")        
+        print(f"{Color.RED}### The key 'access_token' wasn't found.{Color.END}")
         print(f"Response: {response}")
         system.exit(1)
 
 
 def get_users():
-    """ loop through pages and return all users """
+    """loop through pages and return all users"""
     response = requests.get(url=API_ENDPOINT_USER_LIST, headers=AUTHORIZATION_HEADER)
 
     if not response.ok:
@@ -185,15 +213,15 @@ def get_users():
     for page in range(1, total_pages):
         url = f"{API_ENDPOINT_USER_LIST}?page_number={str(page)}"
         user_data = requests.get(url=url, headers=AUTHORIZATION_HEADER).json()
-        users = ([
+        users = [
             (
                 user["email"],
                 user["id"],
                 user.get("first_name", ""),  # Use .get() with a default value
-                user.get("last_name", "")    # Use .get() with a default value
+                user.get("last_name", ""),  # Use .get() with a default value
             )
             for user in user_data["users"]
-        ])
+        ]
 
         all_users.extend(users)
 
@@ -207,9 +235,11 @@ def format_filename(params):
     recording_type = params["recording_type"]
 
     invalid_chars_pattern = r'[<>:"/\\|?*\x00-\x1F]'
-    topic = regex.sub(invalid_chars_pattern, '', recording["topic"])
+    topic = regex.sub(invalid_chars_pattern, "", recording["topic"])
     rec_type = recording_type.replace("_", " ").title()
-    meeting_time_utc = parser.parse(recording["start_time"]).replace(tzinfo=timezone.utc)
+    meeting_time_utc = parser.parse(recording["start_time"]).replace(
+        tzinfo=timezone.utc
+    )
     meeting_time_local = meeting_time_utc.astimezone(MEETING_TIMEZONE)
     year = meeting_time_local.strftime("%Y")
     month = meeting_time_local.strftime("%m")
@@ -240,23 +270,28 @@ def get_downloads(recording):
 
         # must append access token to download_url
         download_url = f"{download['download_url']}?access_token={ACCESS_TOKEN}"
-        downloads.append((file_type, file_extension, download_url, recording_type, recording_id))
+        downloads.append(
+            (file_type, file_extension, download_url, recording_type, recording_id)
+        )
 
     return downloads
 
 
 def get_recordings(email, page_size, rec_start_date, rec_end_date):
+    # Format dates as YYYY-MM-DD for Zoom API
+    start_date_formatted = rec_start_date.strftime("%Y-%m-%d")
+    end_date_formatted = rec_end_date.strftime("%Y-%m-%d")
+
     return {
         "userId": email,
         "page_size": page_size,
-        "from": rec_start_date,
-        "to": rec_end_date
+        "from": start_date_formatted,
+        "to": end_date_formatted,
     }
 
 
 def per_delta(start, end, delta):
-    """ Generator used to create deltas for recording start and end dates
-    """
+    """Generator used to create deltas for recording start and end dates"""
     curr = start
     while curr < end:
         yield curr, min(curr + delta, end)
@@ -264,24 +299,35 @@ def per_delta(start, end, delta):
 
 
 def list_recordings(email):
-    """ Start date now split into YEAR, MONTH, and DAY variables (Within 6 month range)
-        then get recordings within that range
+    """Start date now split into YEAR, MONTH, and DAY variables (Within 6 month range)
+    then get recordings within that range
     """
-    
+
     recordings = []
 
-    for start, end in per_delta(RECORDING_START_DATE, RECORDING_END_DATE, timedelta(days=30)):
+    for start, end in per_delta(
+        RECORDING_START_DATE, RECORDING_END_DATE, timedelta(days=30)
+    ):
         post_data = get_recordings(email, 300, start, end)
+        print(
+            f"    > Requesting recordings from {post_data['from']} to {post_data['to']}"
+        )
+
         response = requests.get(
             url=f"https://api.zoom.us/v2/users/{email}/recordings",
             headers=AUTHORIZATION_HEADER,
-            params=post_data
+            params=post_data,
         )
         recordings_data = response.json()
+
         if "meetings" in recordings_data:
-            recordings.extend(recordings_data["meetings"])
+            chunk_recordings = recordings_data["meetings"]
+            print(f"    > Found {len(chunk_recordings)} recordings in this date range")
+            recordings.extend(chunk_recordings)
         else:
-            print(f"No 'meetings' key found in response for {email} from {start} to {end}")
+            print(
+                f"    > No recordings found in this date range. Response: {recordings_data}"
+            )
 
     return recordings
 
@@ -301,7 +347,9 @@ def download_recording(download_url, email, filename, folder_name):
     block_size = 32 * 1024  # 32 Kibibytes
 
     # create TQDM progress bar
-    prog_bar = progress_bar.tqdm(dynamic_ncols=True, total=total_size, unit="iB", unit_scale=True)
+    prog_bar = progress_bar.tqdm(
+        dynamic_ncols=True, total=total_size, unit="iB", unit_scale=True
+    )
     try:
         with open(full_filename, "wb") as fd:
             for chunk in response.iter_content(block_size):
@@ -322,7 +370,7 @@ def download_recording(download_url, email, filename, folder_name):
 
 def load_completed_meeting_ids():
     try:
-        with open(COMPLETED_MEETING_IDS_LOG, 'r') as fd:
+        with open(COMPLETED_MEETING_IDS_LOG, "r") as fd:
             [COMPLETED_MEETING_IDS.add(line.strip()) for line in fd]
 
     except FileNotFoundError:
@@ -333,22 +381,30 @@ def load_completed_meeting_ids():
 
 
 def handle_graceful_shutdown(signal_received, frame):
-    print(f"\n{Color.DARK_CYAN}SIGINT or CTRL-C detected. system.exiting gracefully.{Color.END}")
+    print(
+        f"\n{Color.DARK_CYAN}SIGINT or CTRL-C detected. system.exiting gracefully.{Color.END}"
+    )
 
     system.exit(0)
+
 
 def delete_recording(meeting_id: str, recording_id: str):
     """Delete the cloud recording for a given meeting ID."""
     url = f"https://api.zoom.us/v2/meetings/{meeting_id}/recordings/{recording_id}"
     resp = requests.delete(url=url, headers=AUTHORIZATION_HEADER)
     if resp.ok:
-        print(f"{Color.GREEN}### Deleted cloud recording RecordingID {recording_id} for MeetingID {meeting_id}{Color.END}")
+        print(
+            f"{Color.GREEN}### Deleted cloud recording RecordingID {recording_id} for MeetingID {meeting_id}{Color.END}"
+        )
     else:
-        print(f"{Color.RED}### Failed to delete cloud recording {recording_id} for MeetingID {meeting_id}: "
-              f"{resp.status_code} {resp.text}{Color.END}")
+        print(
+            f"{Color.RED}### Failed to delete cloud recording {recording_id} for MeetingID {meeting_id}: "
+            f"{resp.status_code} {resp.text}{Color.END}"
+        )
+
 
 def log(message):
-    with open(COMPLETED_MEETING_IDS_LOG, 'a') as log_file:
+    with open(COMPLETED_MEETING_IDS_LOG, "a") as log_file:
         log_file.write(message)
         log_file.flush()
 
@@ -357,12 +413,14 @@ def log(message):
 # #                        MAIN                                  #
 # ################################################################
 
+
 def main():
     # clear the screen buffer
-    os.system('cls' if os.name == 'nt' else 'clear')
+    os.system("cls" if os.name == "nt" else "clear")
 
     # show the logo
-    print(f"""
+    print(
+        f"""
         {Color.DARK_CYAN}
 
 
@@ -386,7 +444,8 @@ def main():
                         V{APP_VERSION}
 
         {Color.END}
-    """)
+    """
+    )
 
     # Storage choice prompt
     print("\nChoose download method:")
@@ -395,7 +454,7 @@ def main():
     choice = input("Enter choice (1-2): ")
 
     global GDRIVE_ENABLED
-    GDRIVE_ENABLED = (choice == "2")
+    GDRIVE_ENABLED = choice == "2"
 
     drive_service = None
     if GDRIVE_ENABLED:
@@ -405,14 +464,18 @@ def main():
 
     load_access_token()
     load_completed_meeting_ids()
-    log(f"*************** Start {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ***************\n")
+    log(
+        f"*************** Start {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ***************\n"
+    )
 
     print(f"{Color.BOLD}Getting user accounts...{Color.END}")
     users = get_users()
 
     for email, user_id, first_name, last_name in users:
         userInfo = (
-            f"{first_name} {last_name} - {email}" if first_name and last_name else f"{email}"
+            f"{first_name} {last_name} - {email}"
+            if first_name and last_name
+            else f"{email}"
         )
         print(f"\n{Color.BOLD}Getting recording list for {userInfo}{Color.END}")
 
@@ -445,13 +508,19 @@ def main():
 
             print(f"\n==> Processing recording {index + 1} of {total_count}")
 
-            for file_type, file_extension, download_url, recording_type, recording_id in downloads:
+            for (
+                file_type,
+                file_extension,
+                download_url,
+                recording_type,
+                recording_id,
+            ) in downloads:
                 try:
                     params = {
                         "file_extension": file_extension,
                         "recording": recording,
                         "recording_id": recording_id,
-                        "recording_type": recording_type
+                        "recording_type": recording_type,
                     }
                     filename, folder_name = format_filename(params)
 
@@ -460,12 +529,16 @@ def main():
                         os.sep.join([DOWNLOAD_DIRECTORY, folder_name])
                     )
                     sanitized_filename = path_validate.sanitize_filename(filename)
-                    full_filename = os.sep.join([sanitized_download_dir, sanitized_filename])
+                    full_filename = os.sep.join(
+                        [sanitized_download_dir, sanitized_filename]
+                    )
 
                     if download_recording(download_url, email, filename, folder_name):
                         if GDRIVE_ENABLED and drive_service:
                             print(f"    > Uploading to Google Drive...")
-                            success = drive_service.upload_file(full_filename, folder_name, sanitized_filename)
+                            success = drive_service.upload_file(
+                                full_filename, folder_name, sanitized_filename
+                            )
                             if success and os.path.exists(full_filename):
                                 os.remove(full_filename)
                                 if not os.listdir(sanitized_download_dir):
@@ -477,18 +550,21 @@ def main():
                         f"for recording {index + 1} of {total_count} due to error: "
                         f"{str(e)}{Color.END}"
                     )
-                    continue                
+                    continue
 
                 if VERBOSE_URL:
-                    log(f"** Downloaded {recording_id} from \n\t{download_url}\n\t to {full_filename}\n")
+                    log(
+                        f"** Downloaded {recording_id} from \n\t{download_url}\n\t to {full_filename}\n"
+                    )
                 else:
                     log(f"** Downloaded {recording_id} to {full_filename}\n")
                 COMPLETED_MEETING_IDS.add(recording_id)
-                
+
                 if DELETE_AFTER_DOWNLOAD:
-                    delete_recording(meeting_id,recording_id)
-                    log(f"** >> Deleted recording {meeting_id,recording_id} - {start_time} - {topic} - {duration} Zoom cloud\n")
-                    
+                    delete_recording(meeting_id, recording_id)
+                    log(
+                        f"** >> Deleted recording {meeting_id,recording_id} - {start_time} - {topic} - {duration} Zoom cloud\n"
+                    )
 
 
 if __name__ == "__main__":

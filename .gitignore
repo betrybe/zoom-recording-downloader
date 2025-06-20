@@ -49,3 +49,6 @@ client_secret.json
 # If using pipx
 /build
 *.egg-info
+
+#Ignore Google Drive credentials
+client_secrets.json
