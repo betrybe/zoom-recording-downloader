@@ -182,18 +182,6 @@ class GoogleDriveClient:
                     "fields": "files(id,name)",
                 }
 
-                # Add shared drive parameters if configured
-                shared_drive_id = self.config.get("shared_drive_id", None)
-                if shared_drive_id:
-                    query_params.update(
-                        {
-                            "supportsAllDrives": True,
-                            "includeItemsFromAllDrives": True,
-                            "driveId": shared_drive_id,
-                            "corpora": "drive",
-                        }
-                    )
-
                 # Execute API request
                 print(f"    > Query: {query_params['q']}")
                 response = self.service.files().list(**query_params).execute()
@@ -239,7 +227,6 @@ class GoogleDriveClient:
             max_retries = int(self.config.get("max_retries", 3))
             retry_delay = int(self.config.get("retry_delay", 5))
             failed_log = self.config.get("failed_log", "failed-uploads.log")
-            shared_drive_id = self.config.get("shared_drive_id", None)
 
             for attempt in range(max_retries):
                 try:
@@ -251,9 +238,6 @@ class GoogleDriveClient:
                         "media_body": media,
                         "fields": "id",
                     }
-
-                    if shared_drive_id:
-                        create_params["supportsAllDrives"] = True
 
                     request = self.service.files().create(**create_params)
                     response = self._handle_upload_with_refresh(request)
@@ -311,20 +295,6 @@ class GoogleDriveClient:
                 self.service.files().list(pageSize=1, fields="files(name)").execute()
             )
             print(f"{Color.GREEN}✓ Successfully listed files in Drive{Color.END}")
-
-            # Test if shared drive access works (if configured)
-            shared_drive_id = self.config.get("shared_drive_id")
-            if shared_drive_id:
-                try:
-                    drive = self.service.drives().get(driveId=shared_drive_id).execute()
-                    print(
-                        f"{Color.GREEN}✓ Connected to Shared Drive: {drive.get('name')}{Color.END}"
-                    )
-                except Exception as e:
-                    print(
-                        f"{Color.RED}× Failed to access shared drive: {str(e)}{Color.END}"
-                    )
-                    return False
 
             return True
 
