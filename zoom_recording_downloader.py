@@ -28,6 +28,8 @@ import tqdm as progress_bar
 from zoneinfo import ZoneInfo
 from google_drive_client import GoogleDriveClient
 
+os.environ["FORCE_COLOR"] = "1"  # Force color output in terminals
+
 
 class Color:
     PURPLE = "\033[95m"
