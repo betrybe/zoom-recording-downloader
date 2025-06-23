@@ -201,3 +201,93 @@ When prompted, choose your preferred storage method:
 2. Google Drive - Uploads recordings to your Google Drive account
 
 Note: For Google Drive uploads, files are temporarily downloaded to local storage before being uploaded, then automatically deleted after successful upload.
+
+-----
+-----
+
+## Migration Usage (Batch Processing)
+
+This script is designed for large-scale migrations and is intended to be run on a server (e.g., an AWS EC2 instance) where it can operate for extended periods.
+
+It expects a CSV file containing Zoom recording metadata, which can be generated from the Zoom API or exported from the Zoom web interface. The script will read this file, download the recordings, and upload them to Google Drive in batches.
+
+A sample file is provided in the repository as `zoomus_recordings.csv`. You can use this as a template for your own recordings file.
+
+### 1\. Initial Setup
+
+Before the first run, you need to prepare your environment.
+
+#### a. Local Machine Setup (One-Time Only)
+
+1.  **Authenticate with Google Drive:** Run the script on your local machine one time to perform the initial, interactive authentication with Google.
+    ```bash
+    python zoom_recording_downloader.py path/to/your/recordings.csv
+    ```
+2.  Follow the browser-based login prompts to authorize the application. This will create a `token.json` file in your project directory. This file stores your credentials securely for non-interactive use on the server.
+
+#### b. Server (EC2) Setup
+
+1.  **Clone the Repository:**
+    ```bash
+    git clone https://github.com/ricardorodrigues-ca/zoom-recording-downloader
+    cd zoom-recording-downloader
+    git checkout download-from-file
+    ```
+2.  **Install Dependencies:** Ensure Python 3 is installed, then install the required packages.
+    ```bash
+    pip install -r requirements.txt
+    ```
+3.  **Upload Necessary Files:** Transfer the following files to the script's directory on your server:
+      * `client_secrets.json` (Your Google application credentials)
+      * `token.json` (The token file you generated locally)
+      * The CSV file containing the list of recordings to migrate (e.g., `zoomus_recordings.csv`).
+
+### 2\. Running the Migration
+
+It is highly recommended to use a terminal multiplexer like `screen` or `tmux` to ensure the script continues to run even if your connection to the server is interrupted.
+
+1.  **Start a `screen` Session:**
+
+    ```bash
+    # Start a new session named 'migration'
+    screen -S migration
+    ```
+
+2.  **Execute the Script:** Run the script, providing the path to your recordings CSV file.
+
+    ```bash
+    python zoom_recording_downloader.py path/to/your/zoomus_recordings.csv
+    ```
+
+3.  **Detach and Monitor:** You can safely detach from the `screen` session by pressing `Ctrl+A` followed by `D`. The script will continue running in the background. To re-attach to the session later and check the progress, use `screen -r migration`.
+
+### 3\. Daily Execution and Batching
+
+The script is designed to be run daily until the migration is complete.
+
+  * It will automatically process recordings in batches up to the daily limit (default 700GB) and then stop.
+  * The `progress_log.json` file keeps track of all completed recordings.
+  * The next day, simply re-run the **exact same command**. The script will read the log, skip the recordings that have already been uploaded, and start a new batch from where it left off.
+
+### 4\. Optional Command-Line Arguments
+
+You can customize the script's behavior with these optional arguments:
+
+  * **Dry Run:** Simulate the entire process without downloading or uploading any files. This is useful for verifying your configuration and seeing which recordings will be processed in the next batch.
+
+    ```bash
+    python zoom_recording_downloader.py path/to/your/zoomus_recordings.csv --dry-run
+    ```
+
+  * **Custom Batch Size:** Set a different daily upload limit in Gigabytes.
+
+    ```bash
+    # Set a batch size of 50 GB for testing
+    python zoom_recording_downloader.py path/to/your/zoomus_recordings.csv --batch-size-gb 50
+    ```
+
+  * **Custom Log File:** Specify a different name or path for the progress log file.
+
+    ```bash
+    python zoom_recording_downloader.py path/to/your/zoomus_recordings.csv --log-file my_migration_log.json
+    ```

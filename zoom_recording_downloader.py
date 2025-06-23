@@ -19,6 +19,9 @@ import signal
 import sys as system
 import time
 from datetime import datetime, date, timezone, timedelta
+import argparse
+import pandas as pd
+from progress_log import ProgressLog, create_row_hash
 
 # Installed modules
 import dateutil.parser as parser
@@ -411,12 +414,118 @@ def log(message):
         log_file.flush()
 
 
+# A cache to store user recordings to avoid repeated API calls for the same user
+USER_RECORDINGS_CACHE = {}
+
+
+def get_recordings_for_user(user_id, start_date, end_date):
+    """
+    Fetches all recordings for a specific user within a date range.
+    Results are cached to minimize API calls.
+    """
+    cache_key = (
+        f"{user_id}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}"
+    )
+    if cache_key in USER_RECORDINGS_CACHE:
+        return USER_RECORDINGS_CACHE[cache_key]
+
+    print(
+        f"    > Fetching recordings for user '{user_id}' from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+    )
+
+    all_meetings = []
+    next_page_token = ""
+    while True:
+        params = {
+            "page_size": 300,
+            "from": start_date.strftime("%Y-%m-%d"),
+            "to": end_date.strftime("%Y-%m-%d"),
+            "next_page_token": next_page_token,
+        }
+        response = requests.get(
+            url=f"https://api.zoom.us/v2/users/{user_id}/recordings",
+            headers=AUTHORIZATION_HEADER,
+            params=params,
+        )
+        response.raise_for_status()
+        data = response.json()
+        all_meetings.extend(data.get("meetings", []))
+
+        next_page_token = data.get("next_page_token")
+        if not next_page_token:
+            break
+
+    USER_RECORDINGS_CACHE[cache_key] = all_meetings
+    return all_meetings
+
+
+def find_matching_recording(csv_row, user_recordings):
+    """
+    Finds a recording from the API response that matches the data in a CSV row.
+    Matching is based on topic and start time, now with proper timezone handling.
+    """
+    csv_start_time_utc = csv_row.get("Start Time UTC")
+    if pd.isna(csv_start_time_utc):
+        return None
+
+    csv_topic = csv_row.get("Topic")
+
+    for recording in user_recordings:
+        api_start_time_utc = parser.parse(recording["start_time"])
+
+        time_difference = abs(csv_start_time_utc - api_start_time_utc)
+
+        # Match if topics are the same and start time is within a 5-minute tolerance.
+        if recording["topic"] == csv_topic and time_difference < timedelta(minutes=5):
+            print(
+                f"    > Found a matching recording in Zoom API. Topic: '{recording['topic']}'"
+            )
+            return recording
+
+    return None
+
+
 # ################################################################
 # #                        MAIN                                  #
 # ################################################################
 
 
 def main():
+    """
+    Main function to run the downloader. Now driven by command-line arguments
+    and a CSV file for large-scale, batch-based migration.
+    """
+    # --- Argument Parsing ---
+    parser = argparse.ArgumentParser(
+        description="Zoom Recording Downloader for large-scale migration.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "csv_file",
+        type=str,
+        help="Path to the CSV file containing the list of recordings.",
+    )
+    parser.add_argument(
+        "--batch-size-gb",
+        type=int,
+        default=500,
+        help="Maximum size of recordings to process in a single run (in GB).\n"
+        "Defaults to 500 to stay under Google Drive's 750GB daily limit.",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default="progress_log.json",
+        help="Path to the progress log file.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate the process without downloading or uploading files.\n"
+        "Useful for checking which recordings will be processed.",
+    )
+    args = parser.parse_args()
+
     # clear the screen buffer
     os.system("cls" if os.name == "nt" else "clear")
 
@@ -424,18 +533,17 @@ def main():
     print(
         f"""
         {Color.DARK_CYAN}
-
-
+        {Color.BOLD}
                              ,*****************.
                           *************************
                         *****************************
                       *********************************
-                     ******               ******* ******
-                    *******                .**    ******
-                    *******                       ******/
-                    *******                       /******
-                    ///////                 //    //////
-                    ///////*              ./////.//////
+                      ******               ******* ******
+                     *******                .**    ******
+                     *******                       ******/
+                     *******                       /******
+                     ///////                 //    //////
+                     ///////*              ./////.//////
                      ////////////////////////////////*
                        /////////////////////////////
                           /////////////////////////
@@ -443,79 +551,147 @@ def main():
 
                         Zoom Recording Downloader
 
-                        V{APP_VERSION}
+                        V{APP_VERSION} - Batch Migration Mode
 
         {Color.END}
     """
     )
 
-    global GDRIVE_ENABLED
-    GDRIVE_ENABLED = True
+    if args.dry_run:
+        print(f"{Color.YELLOW}*** DRY RUN MODE ENABLED ***{Color.END}")
+        print(f"{Color.YELLOW}No files will be downloaded or uploaded.{Color.END}\n")
 
+    # --- Setup ---
+    progress = ProgressLog(args.log_file)
+    print(f"{Color.BOLD}Starting Run #{progress.log_data['run_counter']}{Color.END}\n")
+    load_access_token()
+
+    # --- Google Drive Setup ---
+    global GDRIVE_ENABLED  # Declare intention to modify the global variable
+    GDRIVE_ENABLED = False
     drive_service = None
-    if GDRIVE_ENABLED:
+    if not args.dry_run:
+        print(f"{Color.BOLD}Setting up Google Drive...{Color.END}")
         drive_service = setup_google_drive()
         if not drive_service:
             print(f"{Color.RED}Failed to setup Google Drive. Exiting.{Color.END}")
             system.exit(1)
-
-    load_access_token()
-    load_completed_meeting_ids()
-    log(
-        f"*************** Start {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ***************\n"
-    )
-
-    print(f"{Color.BOLD}Getting user accounts...{Color.END}")
-    users = get_users()
-
-    for email, user_id, first_name, last_name in users:
-        userInfo = (
-            f"{first_name} {last_name} - {email}"
-            if first_name and last_name
-            else f"{email}"
+        GDRIVE_ENABLED = True
+        print(
+            f"{Color.GREEN}✓ Google Drive setup complete. Uploads are enabled.{Color.END}"
         )
-        print(f"\n{Color.BOLD}Getting recording list for {userInfo}{Color.END}")
 
-        recordings = list_recordings(user_id)
-        total_count = len(recordings)
-        print(f"==> Found {total_count} recordings")
+    # --- Load and Prepare CSV Data ---
+    try:
+        print(f"{Color.BOLD}Loading CSV file: {args.csv_file}{Color.END}")
+        df = pd.read_csv(args.csv_file)
+        # Standardize column names
+        df.rename(columns={"File Size (MB)": "file_size_mb", "ID": "id"}, inplace=True)
+        # Create the unique hash for each row
+        df["row_hash"] = df.apply(create_row_hash, axis=1)
 
-        for index, recording in enumerate(recordings):
-            try:
-                recording_id = recording["uuid"]
-                meeting_id = recording["id"]
-                topic = recording["topic"]
-                start_time = recording["start_time"]
-                duration = recording["duration"]
+        # 1. Parse the local time from the CSV as a naive datetime object.
+        df["Start Time"] = pd.to_datetime(
+            df["Start Time"], format="%b %d, %Y %I:%M:%S %p", errors="coerce"
+        )
 
-                if recording_id in COMPLETED_MEETING_IDS:
-                    print(
-                        f"\n==> Skipping already downloaded recording {index + 1} of {total_count}"
-                    )
-                    continue
+        # 2. Localize the naive datetime to a specific timezone (e.g., 'America/Sao_Paulo').
+        #    This tells pandas the original timezone of the data.
+        #    Note: This assumes all times in the CSV are from this timezone.
+        #    Using .dt accessor for Series operations.
+        df["Start Time Localized"] = df["Start Time"].dt.tz_localize(
+            "America/Sao_Paulo", ambiguous="infer"
+        )
 
-                downloads = get_downloads(recording)
+        # 3. Convert the localized time to UTC and store it in a new column.
+        #    This is the column we will use for comparison with the API data.
+        df["Start Time UTC"] = df["Start Time Localized"].dt.tz_convert("UTC")
 
-            except Exception as e:
-                print(
-                    f"{Color.RED}### Failed to get download URLs for recording {index + 1} "
-                    f"of {total_count} due to error: {str(e)}{Color.END}"
-                )
+        # Sort by the original start time to process chronologically
+        df.sort_values(by="Start Time", inplace=True)
+        print(
+            f"==> Found {len(df)} total recordings in the CSV. Sorted by start date.\n"
+        )
+    except Exception as e:
+        print(f"{Color.RED}Error reading or processing CSV file: {e}{Color.END}")
+        system.exit(1)
+
+    # --- Main Processing Loop ---
+    # Get the current date in UTC to compare with the last run date.
+    today_utc = datetime.now(timezone.utc).date()
+    last_run_date = progress.get_last_run_date()
+
+    # This is the new, corrected batch handling logic.
+    # If the script was last run on a day before today, it's a new day.
+    # Reset the batch counter to start fresh for the day.
+    if last_run_date and last_run_date < today_utc:
+        print(
+            f"{Color.YELLOW}Last run was on {last_run_date}. This is a new day.{Color.END}"
+        )
+        print(f"{Color.YELLOW}Resetting daily batch counter to 0.{Color.END}\n")
+        progress.reset_batch_size()
+
+    try:
+        for index, row in df.iterrows():
+            row_hash = row["row_hash"]
+            file_size_mb = row.get("file_size_mb", 0)
+            file_size_gb = file_size_mb / 1024 if pd.notna(file_size_mb) else 0
+
+            if progress.is_completed(row_hash):
                 continue
 
-            print(f"\n==> Processing recording {index + 1} of {total_count}")
+            if progress.get_batch_size() + file_size_gb > args.batch_size_gb:
+                print(f"\n{Color.GREEN}{'='*60}{Color.END}")
+                print(
+                    f"{Color.GREEN}Daily batch limit of {args.batch_size_gb} GB reached. Halting.{Color.END}"
+                )
+                print(
+                    f"{Color.GREEN}Current batch size: {progress.get_batch_size():.2f} GB. Re-run tomorrow to continue.{Color.END}"
+                )
+                print(f"{Color.GREEN}{'='*60}{Color.END}")
+                break
 
-            for (
-                file_type,
-                file_extension,
-                download_url,
-                recording_type,
-                recording_id,
-            ) in downloads:
-                try:
+            # Display the original local time for user-friendliness
+            print(
+                f"\n==> Processing recording from {row['Start Time'].strftime('%Y-%m-%d %H:%M')} | Host: {row['Host']}"
+            )
+            print(f"    Topic: {row['Topic']} | Size: {file_size_mb:.2f} MB")
+
+            if args.dry_run:
+                print(f"    > [DRY RUN] Would process this recording.")
+                continue
+
+            try:
+                # Define a date range around the recording's UTC start time to query the API
+                start_date = row["Start Time UTC"].date() - timedelta(days=1)
+                end_date = row["Start Time UTC"].date() + timedelta(days=1)
+
+                user_recordings = get_recordings_for_user(
+                    row["Host"], start_date, end_date
+                )
+
+                # The 'row' passed here now contains the 'Start Time UTC' column
+                matching_recording = find_matching_recording(row, user_recordings)
+
+                if not matching_recording:
+                    print(
+                        f"    {Color.YELLOW}> Warning: Could not find a matching recording on Zoom for this CSV entry. Logging as complete to skip next time.{Color.END}"
+                    )
+                    progress.log_completed(row_hash, 0)
+                    continue
+
+                downloads = get_downloads(matching_recording)
+
+                for (
+                    file_type,
+                    file_extension,
+                    download_url,
+                    recording_type,
+                    recording_id,
+                ) in downloads:
                     params = {
                         "file_extension": file_extension,
-                        "recording": recording,
+                        "recording": matching_recording,
                         "recording_id": recording_id,
                         "recording_type": recording_type,
                     }
@@ -530,7 +706,12 @@ def main():
                         [sanitized_download_dir, sanitized_filename]
                     )
 
-                    if download_recording(download_url, email, filename, folder_name):
+                    if download_recording(
+                        download_url,
+                        matching_recording.get("host_email", "N/A"),
+                        filename,
+                        folder_name,
+                    ):
                         if GDRIVE_ENABLED and drive_service:
                             print(f"    > Uploading to Google Drive...")
                             success = drive_service.upload_file(
@@ -541,27 +722,26 @@ def main():
                                 if not os.listdir(sanitized_download_dir):
                                     os.rmdir(sanitized_download_dir)
 
-                except Exception as e:
-                    print(
-                        f"{Color.RED}### Failed to process file {file_type} "
-                        f"for recording {index + 1} of {total_count} due to error: "
-                        f"{str(e)}{Color.END}"
-                    )
-                    continue
+                progress.log_completed(row_hash, file_size_gb)
+                print(
+                    f"    {Color.GREEN}> Successfully processed and logged. Row hash: {row_hash}{Color.END}"
+                )
+                print(
+                    f"    > Current batch size: {progress.get_batch_size():.2f} / {args.batch_size_gb} GB"
+                )
 
-                if VERBOSE_URL:
-                    log(
-                        f"** Downloaded {recording_id} from \n\t{download_url}\n\t to {full_filename}\n"
-                    )
-                else:
-                    log(f"** Downloaded {recording_id} to {full_filename}\n")
-                COMPLETED_MEETING_IDS.add(recording_id)
-
-                if DELETE_AFTER_DOWNLOAD:
-                    delete_recording(meeting_id, recording_id)
-                    log(
-                        f"** >> Deleted recording {meeting_id,recording_id} - {start_time} - {topic} - {duration} Zoom cloud\n"
-                    )
+            except Exception as e:
+                print(
+                    f"{Color.RED}### An error occurred while processing row hash {row_hash}: {e}{Color.END}"
+                )
+                print(
+                    f"{Color.RED}### Skipping this meeting for now. It will be retried on the next run.{Color.END}"
+                )
+                continue
+    finally:
+        print("\nSaving final progress log...")
+        progress.save()
+        print("Done.")
 
 
 if __name__ == "__main__":

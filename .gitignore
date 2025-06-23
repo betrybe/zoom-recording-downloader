@@ -50,5 +50,11 @@ client_secret.json
 /build
 *.egg-info
 
-#Ignore Google Drive credentials
+# Ignore Google Drive credentials
 client_secrets.json
+
+# Ignore Zoom US CSVs
+zoomus_recordings_*.csv
+
+# Ignore progress json file
+progress_log.json
