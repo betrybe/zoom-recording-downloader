@@ -449,20 +449,15 @@ def main():
     """
     )
 
-    # Storage choice prompt
-    print("\nChoose download method:")
-    print("1. Local Storage")
-    print("2. Google Drive")
-    choice = input("Enter choice (1-2): ")
-
     global GDRIVE_ENABLED
-    GDRIVE_ENABLED = choice == "2"
+    GDRIVE_ENABLED = True
 
     drive_service = None
     if GDRIVE_ENABLED:
         drive_service = setup_google_drive()
         if not drive_service:
-            GDRIVE_ENABLED = False
+            print(f"{Color.RED}Failed to setup Google Drive. Exiting.{Color.END}")
+            system.exit(1)
 
     load_access_token()
     load_completed_meeting_ids()

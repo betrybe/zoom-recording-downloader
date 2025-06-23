@@ -140,6 +140,28 @@ class GoogleDriveClient:
                         return self._handle_upload_with_refresh(request)
             raise
 
+    def find_folder(self, folder_name, parent_id=None):
+        """Find a folder by name in Google Drive and return its ID, excluding trashed folders."""
+        # Escape single quotes in folder name
+        escaped_folder_name = folder_name.replace("'", "\\'")
+        query = f"name='{escaped_folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed = false"
+        if parent_id:
+            query += f" and '{parent_id}' in parents"
+
+        try:
+            response = (
+                self.service.files()
+                .list(q=query, spaces="drive", fields="files(id, name)")
+                .execute()
+            )
+            if response.get("files"):
+                return response.get("files")[0].get("id")
+        except Exception as e:
+            print(
+                f"{Color.RED}Failed to find folder {folder_name}: {str(e)}{Color.END}"
+            )
+        return None
+
     def create_folder(self, folder_name, parent_id=None):
         """Create a folder in Google Drive and return its ID."""
         file_metadata = {
@@ -171,53 +193,50 @@ class GoogleDriveClient:
             if not folder_name:
                 continue
 
-            try:
-                # Properly escape the folder name for the query - escape apostrophes
-                escaped_folder_name = folder_name.replace("'", "\\'")
+            folder_id = self.find_folder(folder_name, current_parent)
 
-                # Build query parameters
-                query_params = {
-                    "q": f"name='{escaped_folder_name}' and mimeType='application/vnd.google-apps.folder' and '{current_parent}' in parents",
-                    "spaces": "drive",
-                    "fields": "files(id,name)",
-                }
-
-                # Execute API request
-                print(f"    > Query: {query_params['q']}")
-                response = self.service.files().list(**query_params).execute()
-
-                if response.get("files"):
-                    current_parent = response["files"][0]["id"]
+            if folder_id:
+                current_parent = folder_id
+                print(
+                    f"    > Found existing folder: {folder_name} (ID: {current_parent})"
+                )
+            else:
+                # Folder doesn't exist, create it
+                new_folder_id = self.create_folder(folder_name, current_parent)
+                if new_folder_id:
+                    current_parent = new_folder_id
                     print(
-                        f"    > Found existing folder: {folder_name} (ID: {current_parent})"
+                        f"    > Created new folder: {folder_name} (ID: {current_parent})"
                     )
                 else:
-                    # Folder doesn't exist, create it
-                    new_folder_id = self.create_folder(folder_name, current_parent)
-                    if new_folder_id:
-                        current_parent = new_folder_id
-                        print(
-                            f"    > Created new folder: {folder_name} (ID: {current_parent})"
-                        )
-                    else:
-                        print(
-                            f"    {Color.RED}Failed to create folder: {folder_name}{Color.END}"
-                        )
-                        return None
-
-            except Exception as e:
-                print(f"{Color.RED}Error navigating folders: {str(e)}{Color.END}")
-                return None
-
+                    print(
+                        f"    {Color.RED}Failed to create folder: {folder_name}{Color.END}"
+                    )
+                    return None
         return current_parent
 
     def upload_file(self, local_path, folder_name, filename):
-        """Upload file to Google Drive with retry logic."""
+        """Upload file to Google Drive with retry logic and idempotency check, excluding trashed files."""
         try:
             print(f"    > Getting folder ID for path: {folder_name}")
             folder_id = self.navigate_folders(folder_name)
             if not folder_id:
                 return False
+
+            # Escape single quotes in filename
+            escaped_filename = filename.replace("'", "\\'")
+            # Check if file already exists and is not in the trash
+            query = f"name='{escaped_filename}' and '{folder_id}' in parents and trashed = false"
+            response = (
+                self.service.files()
+                .list(q=query, spaces="drive", fields="files(id)")
+                .execute()
+            )
+            if response.get("files"):
+                print(
+                    f"    > File '{filename}' already exists in Google Drive. Skipping upload."
+                )
+                return True
 
             file_metadata = {"name": filename, "parents": [folder_id]}
             print(f"    > Uploading {filename} to folder ID: {folder_id}")
@@ -267,10 +286,20 @@ class GoogleDriveClient:
             return False
 
     def initialize_root_folder(self):
-        """Create root folder with timestamp."""
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-        root_folder_name = f"{self.config.get('root_folder_name', 'zoom-recording-downloader')}-{timestamp}"
-        self.root_folder_id = self.create_folder(root_folder_name)
+        """Find or create the root folder."""
+        root_folder_name = self.config.get(
+            "root_folder_name", "zoom-recording-downloader"
+        )
+        folder_id = self.find_folder(root_folder_name)
+        if folder_id:
+            self.root_folder_id = folder_id
+            print(f"Found root folder '{root_folder_name}' with ID: {folder_id}")
+        else:
+            self.root_folder_id = self.create_folder(root_folder_name)
+            if self.root_folder_id:
+                print(
+                    f"Created root folder '{root_folder_name}' with ID: {self.root_folder_id}"
+                )
         return self.root_folder_id is not None
 
     def test_api_connection(self):
