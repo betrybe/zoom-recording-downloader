@@ -633,71 +633,88 @@ def main():
 
     try:
         for index, row in df.iterrows():
-            row_hash = row["row_hash"]
-            file_size_mb = row.get("file_size_mb", 0)
-            file_size_gb = file_size_mb / 1024 if pd.notna(file_size_mb) else 0
-
-            if progress.is_completed(row_hash):
-                continue
-
-            if progress.get_batch_size() + file_size_gb > args.batch_size_gb:
-                print(f"\n{Color.GREEN}{'='*60}{Color.END}")
-                print(
-                    f"{Color.GREEN}Daily batch limit of {args.batch_size_gb} GB reached. Halting.{Color.END}"
-                )
-                print(
-                    f"{Color.GREEN}Current batch size: {progress.get_batch_size():.2f} GB. Re-run tomorrow to continue.{Color.END}"
-                )
-                print(f"{Color.GREEN}{'='*60}{Color.END}")
-                break
-
-            # Display the original local time for user-friendliness
             print(
-                f"\n==> Processing recording from {row['Start Time'].strftime('%Y-%m-%d %H:%M')} | Host: {row['Host']}"
+                f"\n==> Checking Meeting from {row['Start Time'].strftime('%Y-%m-%d %H:%M')} | Host: {row['Host']}"
             )
-            print(f"    Topic: {row['Topic']} | Size: {file_size_mb:.2f} MB")
+            print(f"    Topic: {row['Topic']}")
 
             if args.dry_run:
-                print(f"    > [DRY RUN] Would process this recording.")
+                print(
+                    f"    > [DRY RUN] Would check this meeting for unprocessed files."
+                )
                 continue
-
             try:
-                # Define a date range around the recording's UTC start time to query the API
+                # Find the matching recording session from the Zoom API
                 start_date = row["Start Time UTC"].date() - timedelta(days=1)
                 end_date = row["Start Time UTC"].date() + timedelta(days=1)
-
                 user_recordings = get_recordings_for_user(
                     row["Host"], start_date, end_date
                 )
-
-                # The 'row' passed here now contains the 'Start Time UTC' column
                 matching_recording = find_matching_recording(row, user_recordings)
 
                 if not matching_recording:
                     print(
-                        f"    {Color.YELLOW}> Warning: Could not find a matching recording on Zoom for this CSV entry. Logging as complete to skip next time.{Color.END}"
+                        f"    {Color.YELLOW}> Warning: Could not find a matching recording on Zoom. Skipping.{Color.END}"
                     )
-                    progress.log_completed(row_hash, 0)
                     continue
 
+                # Get all downloadable files for this recording session
                 downloads = get_downloads(matching_recording)
 
+                # Loop through each individual file and check its status
                 for (
                     file_type,
                     file_extension,
                     download_url,
                     recording_type,
-                    recording_id,
+                    recording_file_id,  # This is the unique ID for the individual file
                 ) in downloads:
+
+                    # Skip this file if it's already completed
+                    if progress.is_completed(recording_file_id):
+                        continue
+
+                    # Get file size and check against batch limit
+                    # We need to find the file_size from the 'downloads' list, which requires a small lookup
+                    file_info = next(
+                        (
+                            f
+                            for f in matching_recording["recording_files"]
+                            if f["id"] == recording_file_id
+                        ),
+                        None,
+                    )
+                    if not file_info:
+                        continue
+
+                    file_size_bytes = file_info.get("file_size", 0)
+                    file_size_gb = file_size_bytes / (1024 * 1024 * 1024)
+
+                    if progress.get_batch_size() + file_size_gb > args.batch_size_gb:
+                        print(f"\n{Color.GREEN}{'='*60}{Color.END}")
+                        print(
+                            f"{Color.GREEN}Daily batch limit of {args.batch_size_gb} GB reached. Halting.{Color.END}"
+                        )
+                        print(
+                            f"{Color.GREEN}Current batch size: {progress.get_batch_size():.2f} GB. Re-run to continue.{Color.END}"
+                        )
+                        print(f"{Color.GREEN}{'='*60}{Color.END}")
+                        # Use a more robust way to exit the entire script
+                        raise SystemExit("Batch limit reached")
+
+                    # Process the file
                     params = {
                         "file_extension": file_extension,
                         "recording": matching_recording,
-                        "recording_id": recording_id,
+                        "recording_id": recording_file_id,
                         "recording_type": recording_type,
                     }
                     filename, folder_name = format_filename(params)
 
-                    print(f"    > Downloading {filename}")
+                    print(
+                        f"    > Processing file: {filename} | Size: {(file_size_bytes / (1024*1024)):.2f} MB"
+                    )
+
                     sanitized_download_dir = path_validate.sanitize_filepath(
                         os.sep.join([DOWNLOAD_DIRECTORY, folder_name])
                     )
@@ -713,7 +730,7 @@ def main():
                         folder_name,
                     ):
                         if GDRIVE_ENABLED and drive_service:
-                            print(f"    > Uploading to Google Drive...")
+                            print(f"      > Uploading to Google Drive...")
                             success = drive_service.upload_file(
                                 full_filename, folder_name, sanitized_filename
                             )
@@ -722,22 +739,29 @@ def main():
                                 if not os.listdir(sanitized_download_dir):
                                     os.rmdir(sanitized_download_dir)
 
-                progress.log_completed(row_hash, file_size_gb)
-                print(
-                    f"    {Color.GREEN}> Successfully processed and logged. Row hash: {row_hash}{Color.END}"
-                )
-                print(
-                    f"    > Current batch size: {progress.get_batch_size():.2f} / {args.batch_size_gb} GB"
-                )
+                        # Log this specific file as complete
+                        progress.log_completed(recording_file_id, file_size_gb)
+                        print(
+                            f"      {Color.GREEN}> Successfully processed and logged file ID: {recording_file_id}{Color.END}"
+                        )
+                        print(
+                            f"      > Current batch size: {progress.get_batch_size():.2f} / {args.batch_size_gb} GB"
+                        )
 
+            except SystemExit as e:
+                # Catch the SystemExit to stop processing gracefully
+                raise e  # Re-raise to exit the script
             except Exception as e:
                 print(
-                    f"{Color.RED}### An error occurred while processing row hash {row_hash}: {e}{Color.END}"
+                    f"{Color.RED}### An error occurred while processing meeting: {e}{Color.END}"
                 )
                 print(
                     f"{Color.RED}### Skipping this meeting for now. It will be retried on the next run.{Color.END}"
                 )
                 continue
+
+    except SystemExit as e:
+        print(f"\n{e}")
     finally:
         print("\nSaving final progress log...")
         progress.save()
