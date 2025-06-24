@@ -89,10 +89,12 @@ def main():
                 row_dict["verification_status"] = "NO_MATCH_ON_ZOOM"
                 row_dict["zoom_file_count"] = 0
                 row_dict["drive_file_count"] = 0
+                row_dict["zoom_meeting_uuid"] = None
                 verification_results.append(row_dict)
                 continue
 
             # Get the definitive list of downloadable files from the Zoom API
+            row_dict["zoom_meeting_uuid"] = matching_recording.get("uuid")
             zoom_files = matching_recording.get("recording_files", [])
             zoom_file_count = len(zoom_files)
             drive_file_count = 0
@@ -123,6 +125,7 @@ def main():
 
         except Exception as e:
             row_dict["verification_status"] = f"ERROR: {str(e)}"
+            row_dict["zoom_meeting_uuid"] = None
             row_dict["zoom_file_count"] = -1
             row_dict["drive_file_count"] = -1
 

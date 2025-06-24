@@ -30,15 +30,18 @@ source "$(dirname "$0")/.venv/bin/activate"
 # Check the first argument to decide which script to run.
 if [[ "$1" == "verify" ]]; then
     echo "--- Running Migration Verification Script ---"
-    # Remove the 'verify' command from the arguments list
-    shift
-    # Execute the verification script with the remaining arguments
+    shift # Remove 'verify' from arguments
     python "$(dirname "$0")/verify_migration.py" "$@"
+
+elif [[ "$1" == "delete" ]]; then
+    echo "--- Running Zoom Deletion Script ---"
+    shift # Remove 'delete' from arguments
+    python "$(dirname "$0")/delete_from_zoom.py" "$@"
 
 elif [[ "$1" == "--help" || "$1" == "help" ]]; then
     echo "Usage: $0 [command] [options]"
     echo ""
-    echo "A tool to download Zoom recordings and verify the migration."
+    echo "A tool to download, verify, and delete Zoom recordings."
     echo ""
     echo "Commands:"
     echo "  <no command>    Run the main download/upload migration script."
@@ -47,10 +50,12 @@ elif [[ "$1" == "--help" || "$1" == "help" ]]; then
     echo "  verify          Run the migration verification script."
     echo "                  e.g., $0 verify path/to/recordings.csv"
     echo ""
+    echo "  delete          Run the Zoom cloud recording deletion script."
+    echo "                  e.g., $0 delete path/to/verification_report.csv"
+    echo ""
     echo "  help            Show this help message."
     exit 0
 else
     echo "--- Running Zoom Recording Downloader Script ---"
-    # Execute the main downloader script with all provided arguments
     python "$(dirname "$0")/zoom_recording_downloader.py" "$@"
 fi
