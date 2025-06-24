@@ -58,3 +58,6 @@ zoomus_recordings_*.csv
 
 # Ignore progress json file
 progress_log.json
+
+# Ignore default verification output file
+verification_report.csv

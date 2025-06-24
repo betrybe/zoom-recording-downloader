@@ -330,3 +330,44 @@ class GoogleDriveClient:
         except Exception as e:
             print(f"{Color.RED}× API connection test failed: {str(e)}{Color.END}")
             return False
+
+    def find_file(self, file_path, filename):
+        """
+        Checks if a specific file exists at a given path in Google Drive.
+
+        Args:
+            file_path (str): The folder path to search within (e.g., "2025/06/My Meeting").
+            filename (str): The name of the file to find.
+
+        Returns:
+            bool: True if the file exists and is not in the trash, False otherwise.
+        """
+        try:
+            # First, navigate to the target folder to get its ID
+            folder_id = self.navigate_folders(file_path)
+            if not folder_id:
+                # If the folder path doesn't exist, the file can't exist either.
+                return False
+
+            # Escape single quotes in filename for the query
+            escaped_filename = filename.replace("'", "\\'")
+
+            # Now, search for the file by name within that specific folder
+            query = f"name='{escaped_filename}' and '{folder_id}' in parents and trashed = false"
+
+            response = (
+                self.service.files()
+                .list(q=query, spaces="drive", fields="files(id)")
+                .execute()
+            )
+
+            # If the response contains any files, it means we found a match.
+            if response.get("files"):
+                return True
+
+        except Exception as e:
+            print(
+                f"{Color.RED}Error during file search for '{filename}': {str(e)}{Color.END}"
+            )
+
+        return False
