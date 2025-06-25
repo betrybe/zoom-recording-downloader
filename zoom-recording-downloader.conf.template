@@ -16,6 +16,8 @@
         "client_secrets_file": "client_secrets.json",
         "token_file": "token.json",
         "root_folder_name": "zoom-recording-downloader",
+        "_comment": "Optional: If you want to upload to a specific shared drive",
+        "shared_drive_id": "1234example5678",
         "retry_delay": 5,
         "max_retries": 3,
         "failed_log": "failed-uploads.log"

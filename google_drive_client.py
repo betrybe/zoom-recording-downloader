@@ -49,6 +49,14 @@ class GoogleDriveClient:
         self.service = None
         self.credentials = None
         self.root_folder_id = None
+        self.shared_drive_id = self.config.get("shared_drive_id")
+        if self.shared_drive_id:
+            print(
+                f"{Color.BOLD}Shared Drive ID specified: {self.shared_drive_id}{Color.END}"
+            )
+            print(
+                f"{Color.YELLOW}All uploads will be targeted to this Shared Drive.{Color.END}"
+            )
 
     def authenticate(self):
         """Handle the OAuth flow and return True if successful."""
@@ -149,11 +157,20 @@ class GoogleDriveClient:
             query += f" and '{parent_id}' in parents"
 
         try:
-            response = (
-                self.service.files()
-                .list(q=query, spaces="drive", fields="files(id, name)")
-                .execute()
-            )
+            # --- Parameters for Shared Drive support ---
+            drive_params = {"q": query, "spaces": "drive", "fields": "files(id, name)"}
+            if self.shared_drive_id:
+                drive_params.update(
+                    {
+                        "driveId": self.shared_drive_id,
+                        "corpora": "drive",  # Search within a specific drive
+                        "includeItemsFromAllDrives": True,  # Required for Shared Drives
+                        "supportsAllDrives": True,  # Required for Shared Drives
+                    }
+                )
+
+            response = self.service.files().list(**drive_params).execute()
+
             if response.get("files"):
                 return response.get("files")[0].get("id")
         except Exception as e:
@@ -170,10 +187,17 @@ class GoogleDriveClient:
         }
         if parent_id:
             file_metadata["parents"] = [parent_id]
+        elif self.shared_drive_id:
+            file_metadata["parents"] = [self.shared_drive_id]
 
         try:
+            # --- Parameters for Shared Drive support ---
+            create_params = {"body": file_metadata, "fields": "id"}
+            if self.shared_drive_id:
+                create_params["supportsAllDrives"] = True  # Required for Shared Drives
+
             folder = self._handle_upload_with_refresh(
-                self.service.files().create(body=file_metadata, fields="id")
+                self.service.files().create(**create_params)
             )
             return folder.get("id")
         except Exception as e:
@@ -227,11 +251,18 @@ class GoogleDriveClient:
             escaped_filename = filename.replace("'", "\\'")
             # Check if file already exists and is not in the trash
             query = f"name='{escaped_filename}' and '{folder_id}' in parents and trashed = false"
-            response = (
-                self.service.files()
-                .list(q=query, spaces="drive", fields="files(id)")
-                .execute()
-            )
+            drive_params = {"q": query, "spaces": "drive", "fields": "files(id)"}
+            if self.shared_drive_id:
+                drive_params.update(
+                    {
+                        "driveId": self.shared_drive_id,
+                        "corpora": "drive",  # Search within a specific drive
+                        "includeItemsFromAllDrives": True,  # Required for Shared Drives
+                        "supportsAllDrives": True,  # Required for Shared Drives
+                    }
+                )
+
+            response = self.service.files().list(**drive_params).execute()
             if response.get("files"):
                 print(
                     f"    > File '{filename}' already exists in Google Drive. Skipping upload."
@@ -257,6 +288,11 @@ class GoogleDriveClient:
                         "media_body": media,
                         "fields": "id",
                     }
+
+                    if self.shared_drive_id:
+                        create_params["supportsAllDrives"] = (
+                            True  # Required for Shared Drives
+                        )
 
                     request = self.service.files().create(**create_params)
                     response = self._handle_upload_with_refresh(request)
@@ -286,15 +322,22 @@ class GoogleDriveClient:
             return False
 
     def initialize_root_folder(self):
-        """Find or create the root folder."""
+        """
+        Finds or creates the root folder, either in 'My Drive' or in the specified Shared Drive.
+        """
         root_folder_name = self.config.get(
             "root_folder_name", "zoom-recording-downloader"
         )
+
+        # When searching for the root folder in a Shared Drive, we don't specify a parent.
+        # The 'find_folder' method will correctly scope the search to the Shared Drive.
         folder_id = self.find_folder(root_folder_name)
         if folder_id:
             self.root_folder_id = folder_id
             print(f"Found root folder '{root_folder_name}' with ID: {folder_id}")
         else:
+            # If creating the root folder, the 'create_folder' method will handle
+            # setting the parent to the Shared Drive ID automatically.
             self.root_folder_id = self.create_folder(root_folder_name)
             if self.root_folder_id:
                 print(
