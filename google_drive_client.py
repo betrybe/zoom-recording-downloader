@@ -416,11 +416,23 @@ class GoogleDriveClient:
             # Now, search for the file by name within that specific folder
             query = f"name='{escaped_filename}' and '{folder_id}' in parents and trashed = false"
 
-            response = (
-                self.service.files()
-                .list(q=query, spaces="drive", fields="files(id)")
-                .execute()
-            )
+            drive_params = {
+                "q": query,
+                "spaces": "drive",
+                "fields": "files(id)",
+            }
+
+            if self.shared_drive_id:
+                drive_params.update(
+                    {
+                        "driveId": self.shared_drive_id,
+                        "corpora": "drive",  # Search within a specific drive
+                        "includeItemsFromAllDrives": True,  # Required for Shared Drives
+                        "supportsAllDrives": True,  # Required for Shared Drives
+                    }
+                )
+
+            response = self.service.files().list(**drive_params).execute()
 
             # If the response contains any files, it means we found a match.
             if response.get("files"):
