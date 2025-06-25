@@ -9,7 +9,7 @@ from tqdm import tqdm
 from zoom_recording_downloader import (
     Color,
     load_access_token,
-    AUTHORIZATION_HEADER,  # We need the auth header for API calls
+    make_zoom_api_request,
 )
 
 
@@ -32,20 +32,20 @@ def delete_meeting_recordings(meeting_uuid):
     # Note: The 'action=trash' parameter can be used to move to trash instead of permanent deletion.
     # For this script, we perform a permanent deletion as requested.
     url = f"https://api.zoom.us/v2/meetings/{meeting_uuid}/recordings"
-
-    response = requests.delete(url=url, headers=AUTHORIZATION_HEADER)
-
-    # A 204 No Content response means success. A 404 means it's already gone.
-    if response.status_code == 204:
+    try:
+        # Use the wrapper for the DELETE request
+        make_zoom_api_request("DELETE", url)
         return True, "DELETED"
-    if response.status_code == 404:
-        return True, "ALREADY_DELETED_OR_NOT_FOUND"
+    except requests.exceptions.HTTPError as e:
+        # Check if the error is a 404 Not Found, which we treat as a success.
+        if e.response.status_code == 404:
+            return True, "ALREADY_DELETED_OR_NOT_FOUND"
 
-    # Any other status code is an error.
-    print(
-        f"    {Color.RED}API Error: {response.status_code} - {response.text}{Color.END}"
-    )
-    return False, f"ERROR_{response.status_code}"
+        # Any other error is a failure.
+        print(
+            f"    {Color.RED}API Error: {e.response.status_code} - {e.response.text}{Color.END}"
+        )
+        return False, f"ERROR_{e.response.status_code}"
 
 
 def main():

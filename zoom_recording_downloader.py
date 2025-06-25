@@ -199,25 +199,14 @@ def load_access_token():
 
 def get_users():
     """loop through pages and return all users"""
-    response = requests.get(url=API_ENDPOINT_USER_LIST, headers=AUTHORIZATION_HEADER)
-
-    if not response.ok:
-        print(response)
-        print(
-            f"{Color.RED}### Could not retrieve users. Please make sure that your access "
-            f"token is still valid{Color.END}"
-        )
-
-        system.exit(1)
-
-    page_data = response.json()
+    page_data = make_zoom_api_request("GET", API_ENDPOINT_USER_LIST)
     total_pages = int(page_data["page_count"]) + 1
-
     all_users = []
 
     for page in range(1, total_pages):
-        url = f"{API_ENDPOINT_USER_LIST}?page_number={str(page)}"
-        user_data = requests.get(url=url, headers=AUTHORIZATION_HEADER).json()
+        user_data = make_zoom_api_request(
+            "GET", API_ENDPOINT_USER_LIST, params={"page_number": str(page)}
+        )
         users = [
             (
                 user["email"],
@@ -318,12 +307,9 @@ def list_recordings(email):
             f"    > Requesting recordings from {post_data['from']} to {post_data['to']}"
         )
 
-        response = requests.get(
-            url=f"https://api.zoom.us/v2/users/{email}/recordings",
-            headers=AUTHORIZATION_HEADER,
-            params=post_data,
+        recordings_data = make_zoom_api_request(
+            "GET", f"https://api.zoom.us/v2/users/{email}/recordings", params=post_data
         )
-        recordings_data = response.json()
 
         if "meetings" in recordings_data:
             chunk_recordings = recordings_data["meetings"]
@@ -395,16 +381,17 @@ def handle_graceful_shutdown(signal_received, frame):
 
 def delete_recording(meeting_id: str, recording_id: str):
     """Delete the cloud recording for a given meeting ID."""
-    url = f"https://api.zoom.us/v2/meetings/{meeting_id}/recordings/{recording_id}"
-    resp = requests.delete(url=url, headers=AUTHORIZATION_HEADER)
-    if resp.ok:
+    try:
+        url = f"https://api.zoom.us/v2/meetings/{meeting_id}/recordings/{recording_id}"
+        make_zoom_api_request("DELETE", url)
         print(
             f"{Color.GREEN}### Deleted cloud recording RecordingID {recording_id} for MeetingID {meeting_id}{Color.END}"
         )
-    else:
+    except requests.exceptions.HTTPError as e:
+        # The wrapper raises errors, so we catch them here.
         print(
             f"{Color.RED}### Failed to delete cloud recording {recording_id} for MeetingID {meeting_id}: "
-            f"{resp.status_code} {resp.text}{Color.END}"
+            f"{e.response.status_code} {e.response.text}{Color.END}"
         )
 
 
@@ -416,6 +403,43 @@ def log(message):
 
 # A cache to store user recordings to avoid repeated API calls for the same user
 USER_RECORDINGS_CACHE = {}
+
+
+def make_zoom_api_request(method, url, params=None, data=None):
+    """
+    A generic wrapper for making requests to the Zoom API.
+    Handles automatic token refresh and retries the request upon a 401 error.
+    Supports different HTTP methods (GET, DELETE, POST, etc.).
+    """
+    # Create a request session to persist headers
+    session = requests.Session()
+    session.headers.update(AUTHORIZATION_HEADER)
+
+    # Prepare the request arguments
+    request_args = {"url": url, "params": params, "json": data}
+
+    # First attempt
+    response = session.request(method, **request_args)
+
+    # Check if the token has expired
+    if response.status_code == 401:
+        print(f"    {Color.YELLOW}> Access token expired. Refreshing...{Color.END}")
+
+        # Refresh the token and update the global header
+        load_access_token()
+        # Update the session header with the new token for the retry
+        session.headers.update(AUTHORIZATION_HEADER)
+
+        print(f"    {Color.YELLOW}> Retrying API request...{Color.END}")
+        response = session.request(method, **request_args)
+
+    response.raise_for_status()
+
+    # For DELETE requests with a 204 status, there is no JSON body.
+    if response.status_code == 204:
+        return None
+
+    return response.json()
 
 
 def get_recordings_for_user(user_id, start_date, end_date):
@@ -442,13 +466,10 @@ def get_recordings_for_user(user_id, start_date, end_date):
             "to": end_date.strftime("%Y-%m-%d"),
             "next_page_token": next_page_token,
         }
-        response = requests.get(
-            url=f"https://api.zoom.us/v2/users/{user_id}/recordings",
-            headers=AUTHORIZATION_HEADER,
-            params=params,
+        data = make_zoom_api_request(
+            "GET", f"https://api.zoom.us/v2/users/{user_id}/recordings", params=params
         )
-        response.raise_for_status()
-        data = response.json()
+
         all_meetings.extend(data.get("meetings", []))
 
         next_page_token = data.get("next_page_token")
