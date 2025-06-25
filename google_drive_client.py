@@ -206,9 +206,19 @@ class GoogleDriveClient:
             )
             return None
 
-    def navigate_folders(self, folder_path):
-        """Navigate through folder structure, creating folders if necessary"""
+    def navigate_folders(self, folder_path, create_if_missing=True):
+        """
+        Navigates through a folder structure, creating folders as needed.
+        Args:
+            folder_path (str): The folder path to navigate (e.g., "2025/06/My Meeting").
+            create_if_missing (bool): If True, creates folders along the path if they
+                                      don't exist. If False, it will not create
+                                      folders and will return None if the path is not found.
+        """
         print(f"  > Navigating to folder path: {folder_path}")
+
+        # Start navigation from the root folder (either My Drive or the Shared Drive root)
+        # For Shared Drives, the initial parent is the drive ID itself.
 
         parts = folder_path.split(os.sep)
         current_parent = self.root_folder_id
@@ -221,29 +231,37 @@ class GoogleDriveClient:
 
             if folder_id:
                 current_parent = folder_id
-                print(
-                    f"    > Found existing folder: {folder_name} (ID: {current_parent})"
-                )
-            else:
-                # Folder doesn't exist, create it
-                new_folder_id = self.create_folder(folder_name, current_parent)
-                if new_folder_id:
-                    current_parent = new_folder_id
+                if create_if_missing:
                     print(
-                        f"    > Created new folder: {folder_name} (ID: {current_parent})"
+                        f"    > Found existing folder: {folder_name} (ID: {current_parent})"
                     )
+            else:
+                if create_if_missing:
+                    # Folder doesn't exist, create it
+                    new_folder_id = self.create_folder(folder_name, current_parent)
+                    if new_folder_id:
+                        current_parent = new_folder_id
+                        print(
+                            f"    > Created new folder: {folder_name} (ID: {current_parent})"
+                        )
+                    else:
+                        print(
+                            f"    {Color.RED}Failed to create folder: {folder_name}{Color.END}"
+                        )
+                        return None
                 else:
                     print(
-                        f"    {Color.RED}Failed to create folder: {folder_name}{Color.END}"
+                        f"    > Folder '{folder_name}' not found. Path does not exist (read-only mode)."
                     )
                     return None
+
         return current_parent
 
     def upload_file(self, local_path, folder_name, filename):
         """Upload file to Google Drive with retry logic and idempotency check, excluding trashed files."""
         try:
             print(f"    > Getting folder ID for path: {folder_name}")
-            folder_id = self.navigate_folders(folder_name)
+            folder_id = self.navigate_folders(folder_name, create_if_missing=True)
             if not folder_id:
                 return False
 
@@ -387,7 +405,7 @@ class GoogleDriveClient:
         """
         try:
             # First, navigate to the target folder to get its ID
-            folder_id = self.navigate_folders(file_path)
+            folder_id = self.navigate_folders(file_path, create_if_missing=False)
             if not folder_id:
                 # If the folder path doesn't exist, the file can't exist either.
                 return False

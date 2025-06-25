@@ -109,7 +109,6 @@ def main():
                 }
                 expected_filename, expected_folder_path = format_filename(params)
 
-                # Use the new find_file method
                 if drive_service.find_file(expected_folder_path, expected_filename):
                     drive_file_count += 1
 
