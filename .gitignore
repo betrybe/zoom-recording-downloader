@@ -11,7 +11,7 @@ __pycache__/*
 *downloads*
 
 # Ignore log files
-*.log
+**/*.log
 
 # Ignore Visual Studio Code Workspace
 *.code-workspace

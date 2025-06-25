@@ -24,19 +24,39 @@ fi
 # Activate the virtual environment for the current shell
 source "$(dirname "$0")/.venv/bin/activate"
 
+# --- Log file setup ---
+# Create a 'logs' directory for console outputs if it doesn't exist
+LOG_DIR="$SCRIPT_DIR/logs"
+mkdir -p "$LOG_DIR"
+# Create a unique, timestamped filename for this specific run's console log
+TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+CONSOLE_LOG_FILE="$LOG_DIR/console_output_${TIMESTAMP}.log"
+
 
 # --- Script Execution Logic ---
+# A helper function to wrap the python execution and apply 'tee' for logging.
+run_script() {
+    # The first argument is the python script to run
+    # The rest of the arguments are passed directly to that script
+    local script_to_run=$1
+    shift
+    echo "Saving console output to: ${CONSOLE_LOG_FILE}"
+    # Execute the python script.
+    # 2>&1 redirects stderr to stdout.
+    # The pipe '|' sends this combined output to 'tee', which splits it:
+    # one stream goes to the console, the other to the specified log file.
+    python -u "$script_to_run" "$@" 2>&1 | tee "$CONSOLE_LOG_FILE"
+}
 
-# Check the first argument to decide which script to run.
 if [[ "$1" == "verify" ]]; then
     echo "--- Running Migration Verification Script ---"
-    shift # Remove 'verify' from arguments
-    python "$(dirname "$0")/verify_migration.py" "$@"
+    shift
+    run_script "$(dirname "$0")/verify_migration.py" "$@"
 
 elif [[ "$1" == "delete" ]]; then
     echo "--- Running Zoom Deletion Script ---"
-    shift # Remove 'delete' from arguments
-    python "$(dirname "$0")/delete_from_zoom.py" "$@"
+    shift
+    run_script "$(dirname "$0")/delete_from_zoom.py" "$@"
 
 elif [[ "$1" == "--help" || "$1" == "help" ]]; then
     echo "Usage: $0 [command] [options]"
@@ -57,5 +77,5 @@ elif [[ "$1" == "--help" || "$1" == "help" ]]; then
     exit 0
 else
     echo "--- Running Zoom Recording Downloader Script ---"
-    python "$(dirname "$0")/zoom_recording_downloader.py" "$@"
+    run_script "$(dirname "$0")/zoom_recording_downloader.py" "$@"
 fi

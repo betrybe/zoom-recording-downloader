@@ -72,6 +72,20 @@ You will need a [Zoom Developer account](https://marketplace.zoom.us/) to create
 
 Copy `zoom-recording-downloader.conf.template` to a new file named `zoom-recording-downloader.conf` and fill in your credentials.
 
+## Logging
+
+This toolset saves the logs of its operations for later review.
+
+### Console Output Logs (`logs/console_output_*.log`)
+
+The launcher script automatically saves the full, colorful console output of every run to a timestamped file inside the `logs/` directory.
+
+- **Location:** `logs/console_output_YYYY-MM-DD_HH-MM-SS.log`
+- **Format:** A raw copy of what you see in the terminal.
+- **Purpose:** Provides a human-readable history of each specific run, showing the progress, warnings, and user-facing messages exactly as they appeared.
+
+---
+
 ## The 3-Phase Migration Process
 
 This script is designed to migrate a large number of recordings safely. The process is broken down into three distinct phases.
