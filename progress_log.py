@@ -21,7 +21,9 @@ class ProgressLog:
                 try:
                     data = json.load(f)
                     data.setdefault("run_counter", 0)
-                    data.setdefault("completed_recordings", {})
+                    data.setdefault("total_completed_recordings", {})
+                    data.setdefault("daily_completed_recordings", {})
+                    data.setdefault("total_completed_gb", 0.0)
                     return data
                 except json.JSONDecodeError:
                     return self._create_new_log()
@@ -32,13 +34,18 @@ class ProgressLog:
         """Creates a new, empty log structure with the new data format."""
         return {
             "last_run_utc": None,
-            "completed_recordings": {},
+            "total_completed_recordings": {},
+            "daily_completed_recordings": {},
             "run_counter": 0,
+            "total_completed_gb": 0.0,
         }
 
     def save(self):
         """Explicitly saves the current log data, updating the timestamp."""
         self.log_data["last_run_utc"] = datetime.now(timezone.utc).isoformat()
+        self.log_data["total_completed_gb"] = sum(
+            self.log_data["total_completed_recordings"].values()
+        )
         with open(self.log_file, "w") as f:
             json.dump(self.log_data, f, indent=4)
 
@@ -52,7 +59,7 @@ class ProgressLog:
         Returns:
             bool: True if the file ID is in the completed list, False otherwise.
         """
-        return str(recording_file_id) in self.log_data["completed_recordings"]
+        return str(recording_file_id) in self.log_data["total_completed_recordings"]
 
     def log_completed(self, recording_file_id, file_size_gb):
         """
@@ -63,7 +70,8 @@ class ProgressLog:
             file_size_gb (float): The size of the file in GB.
         """
         if not self.is_completed(recording_file_id):
-            self.log_data["completed_recordings"][str(recording_file_id)] = file_size_gb
+            self.log_data["total_completed_recordings"][str(recording_file_id)] = file_size_gb
+            self.log_data["daily_completed_recordings"][str(recording_file_id)] = file_size_gb
             self.save()
 
     def get_batch_size(self):
@@ -71,7 +79,7 @@ class ProgressLog:
         Calculates and returns the current batch size by summing the sizes of all
         individually completed files.
         """
-        return sum(self.log_data["completed_recordings"].values())
+        return sum(self.log_data["daily_completed_recordings"].values())
 
     def get_last_run_date(self):
         """Gets the date of the last run from the log."""
@@ -82,10 +90,10 @@ class ProgressLog:
 
     def reset_batch_size(self):
         """
-        Resets the batch by clearing the dictionary of completed recordings.
+        Resets the daily batch by clearing the dictionary of daily completed recordings.
         This should be used when starting a new day's batch.
         """
-        self.log_data["completed_recordings"] = {}
+        self.log_data["daily_completed_recordings"] = {}
         self.save()
 
 
