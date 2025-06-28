@@ -483,7 +483,8 @@ def get_recordings_for_user(user_id, start_date, end_date):
 def find_matching_recording(csv_row, user_recordings):
     """
     Finds a recording from the API response that matches the data in a CSV row.
-    Matching is based on topic and start time, now with proper timezone handling.
+    Matching is based on topic and start time, now with proper timezone handling and
+    topic string normalization.
     """
     csv_start_time_utc = csv_row.get("Start Time UTC")
     if pd.isna(csv_start_time_utc):
@@ -491,12 +492,21 @@ def find_matching_recording(csv_row, user_recordings):
 
     csv_topic = csv_row.get("Topic")
 
+    # --- FIX: Normalize the CSV topic string ---
+    # This checks if the topic string from the CSV starts with a single quote
+    # followed by a dash, which is the pattern you identified.
+    # If it does, we strip the leading single quote before comparison.
+    if csv_topic and csv_topic.startswith("'-"):
+        # Slicing the string from the second character onwards
+        csv_topic = csv_topic[1:]
+        print(f"    > Normalized topic from CSV: '{csv_topic}'")
+
     for recording in user_recordings:
         api_start_time_utc = parser.parse(recording["start_time"])
-
         time_difference = abs(csv_start_time_utc - api_start_time_utc)
 
-        # Match if topics are the same and start time is within a 5-minute tolerance.
+        # Match if the (now normalized) topics are the same and the start time
+        # is within a 5-minute tolerance.
         if recording["topic"] == csv_topic and time_difference < timedelta(minutes=5):
             print(
                 f"    > Found a matching recording in Zoom API. Topic: '{recording['topic']}'"
