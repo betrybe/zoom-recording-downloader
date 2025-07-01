@@ -665,6 +665,19 @@ def main():
 
     try:
         for index, row in df.iterrows():
+            # --- OPTIMIZATION: Skip empty recordings based on CSV data ---
+            # Correctly checks if both 'File Count' and 'file_size_mb' are 0.
+            if row.get("File Count") == 0 and row.get("file_size_mb") == 0:
+                print(
+                    f"\n==> Skipping recording from {row['Start Time'].strftime('%Y-%m-%d %H:%M')} (Host: {row['Host']})"
+                )
+                print(f"    Topic: {row['Topic']}")
+                print(
+                    f"    {Color.YELLOW}> Reason: CSV indicates 0 files and 0 size. Skipping API call.{Color.END}"
+                )
+                # --- FIX: We do NOT log anything here. We simply continue to the next row. ---
+                continue
+
             print(
                 f"\n==> Checking Meeting from {row['Start Time'].strftime('%Y-%m-%d %H:%M')} | Host: {row['Host']}"
             )
