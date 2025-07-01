@@ -494,9 +494,10 @@ def find_matching_recording(csv_row, user_recordings):
 
     # --- FIX: Normalize the CSV topic string ---
     # This checks if the topic string from the CSV starts with a single quote
-    # followed by a dash, which is the pattern you identified.
+    # followed by a dash or an at, which is the pattern you identified.
     # If it does, we strip the leading single quote before comparison.
-    if csv_topic and csv_topic.startswith("'-"):
+    to_normalize = ["'-", "'@"]
+    if csv_topic and any(csv_topic.startswith(pattern) for pattern in to_normalize):
         # Slicing the string from the second character onwards
         csv_topic = csv_topic[1:]
         print(f"    > Normalized topic from CSV: '{csv_topic}'")

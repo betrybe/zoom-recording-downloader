@@ -70,8 +70,12 @@ class ProgressLog:
             file_size_gb (float): The size of the file in GB.
         """
         if not self.is_completed(recording_file_id):
-            self.log_data["total_completed_recordings"][str(recording_file_id)] = file_size_gb
-            self.log_data["daily_completed_recordings"][str(recording_file_id)] = file_size_gb
+            self.log_data["total_completed_recordings"][
+                str(recording_file_id)
+            ] = file_size_gb
+            self.log_data["daily_completed_recordings"][
+                str(recording_file_id)
+            ] = file_size_gb
             self.save()
 
     def get_batch_size(self):
