@@ -247,7 +247,8 @@ def format_filename(params):
 
 def get_downloads(recording):
     if not recording.get("recording_files"):
-        raise Exception
+        print(f"{Color.RED}### No recording files found.{Color.END}")
+        return []
 
     downloads = []
     for download in recording["recording_files"]:
@@ -798,7 +799,7 @@ def main():
                 raise e  # Re-raise to exit the script
             except Exception as e:
                 print(
-                    f"{Color.RED}### An error occurred while processing meeting: {e}{Color.END}"
+                    f"{Color.RED}### An error occurred while processing meeting: {repr(e)}{Color.END}"
                 )
                 print(
                     f"{Color.RED}### Skipping this meeting for now. It will be retried on the next run.{Color.END}"
