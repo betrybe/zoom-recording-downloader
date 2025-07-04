@@ -624,8 +624,17 @@ def main():
         df["row_hash"] = df.apply(create_row_hash, axis=1)
 
         # 1. Parse the local time from the CSV as a naive datetime object.
+        #    This assumes the CSV has a 'Start Time' column in various formats.
+        #    We try multiple formats to ensure compatibility with different CSV exports:
+        #    Jan 01, 2020 12:00:00 AM
+        #    01/01/2020 00:00:00
+        #    2020-01-01 00:00:00
         df["Start Time"] = pd.to_datetime(
             df["Start Time"], format="%b %d, %Y %I:%M:%S %p", errors="coerce"
+        ).fillna(
+            pd.to_datetime(df["Start Time"], format="%m/%d/%Y %H:%M:%S", errors="coerce")
+        ).fillna(
+            pd.to_datetime(df["Start Time"], format="%Y-%m-%d %H:%M:%S", errors="coerce")
         )
 
         # 2. Localize the naive datetime to a specific timezone (e.g., 'America/Sao_Paulo').
