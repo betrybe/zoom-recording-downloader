@@ -46,6 +46,13 @@ def delete_meeting_recordings(meeting_uuid):
             f"    {Color.RED}API Error: {e.response.status_code} - {e.response.text}{Color.END}"
         )
         return False, f"ERROR_{e.response.status_code}"
+    except requests.exceptions.ConnectionError as e:
+        # If make_zoom_api_request ultimately fails after all retries,
+        # it will raise the ConnectionError. We catch it here.
+        print(
+            f"    {Color.RED}Connection failed after multiple retries: {e}{Color.END}"
+        )
+        return False, "ERROR_CONNECTION_FAILED"
 
 
 def main():

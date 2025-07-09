@@ -406,7 +406,7 @@ def log(message):
 USER_RECORDINGS_CACHE = {}
 
 
-def make_zoom_api_request(method, url, params=None, data=None):
+def make_zoom_api_request(method, url, params=None, data=None, max_retries=3):
     """
     A generic wrapper for making requests to the Zoom API.
     Handles automatic token refresh and retries the request upon a 401 error.
@@ -419,28 +419,50 @@ def make_zoom_api_request(method, url, params=None, data=None):
     # Prepare the request arguments
     request_args = {"url": url, "params": params, "json": data}
 
-    # First attempt
-    response = session.request(method, **request_args)
+    for attempt in range(max_retries):
+        try:
 
-    # Check if the token has expired
-    if response.status_code == 401:
-        print(f"    {Color.YELLOW}> Access token expired. Refreshing...{Color.END}")
+            # First attempt
+            response = session.request(method, **request_args)
 
-        # Refresh the token and update the global header
-        load_access_token()
-        # Update the session header with the new token for the retry
-        session.headers.update(AUTHORIZATION_HEADER)
+            # Check if the token has expired
+            if response.status_code == 401:
+                print(
+                    f"    {Color.YELLOW}> Access token expired. Refreshing...{Color.END}"
+                )
 
-        print(f"    {Color.YELLOW}> Retrying API request...{Color.END}")
-        response = session.request(method, **request_args)
+                # Refresh the token and update the global header
+                load_access_token()
+                # Update the session header with the new token for the retry
+                session.headers.update(AUTHORIZATION_HEADER)
 
-    response.raise_for_status()
+                print(f"    {Color.YELLOW}> Retrying API request...{Color.END}")
+                response = session.request(method, **request_args)
 
-    # For DELETE requests with a 204 status, there is no JSON body.
-    if response.status_code == 204:
-        return None
+            response.raise_for_status()
 
-    return response.json()
+            # For DELETE requests with a 204 status, there is no JSON body.
+            if response.status_code == 204:
+                return None
+
+            return response.json()
+        except requests.exceptions.ConnectionError as e:
+            print(f"    {Color.YELLOW}> Connection error encountered: {e}{Color.END}")
+            if attempt < max_retries - 1:
+                wait_time = 2 ** (attempt + 1)
+                print(
+                    f"    {Color.YELLOW}> Retrying in {wait_time} seconds... ({attempt + 2}/{max_retries}){Color.END}"
+                )
+                time.sleep(wait_time)
+            else:
+                print(
+                    f"    {Color.RED}> Max retries reached. Failing the request.{Color.END}"
+                )
+                raise  # Re-raise the last exception if all retries fail
+        except requests.exceptions.HTTPError as e:
+            # If it's a non-401 HTTP error, we should not retry. Raise it immediately.
+            # This prevents retrying on errors like "404 Not Found".
+            raise e
 
 
 def get_recordings_for_user(user_id, start_date, end_date):
@@ -629,12 +651,20 @@ def main():
         #    Jan 01, 2020 12:00:00 AM
         #    01/01/2020 00:00:00
         #    2020-01-01 00:00:00
-        df["Start Time"] = pd.to_datetime(
-            df["Start Time"], format="%b %d, %Y %I:%M:%S %p", errors="coerce"
-        ).fillna(
-            pd.to_datetime(df["Start Time"], format="%m/%d/%Y %H:%M:%S", errors="coerce")
-        ).fillna(
-            pd.to_datetime(df["Start Time"], format="%Y-%m-%d %H:%M:%S", errors="coerce")
+        df["Start Time"] = (
+            pd.to_datetime(
+                df["Start Time"], format="%b %d, %Y %I:%M:%S %p", errors="coerce"
+            )
+            .fillna(
+                pd.to_datetime(
+                    df["Start Time"], format="%m/%d/%Y %H:%M:%S", errors="coerce"
+                )
+            )
+            .fillna(
+                pd.to_datetime(
+                    df["Start Time"], format="%Y-%m-%d %H:%M:%S", errors="coerce"
+                )
+            )
         )
 
         # 2. Localize the naive datetime to a specific timezone (e.g., 'America/Sao_Paulo').
