@@ -1,5 +1,6 @@
 import argparse
 import sys as system
+import urllib.parse
 
 import pandas as pd
 import requests
@@ -29,9 +30,22 @@ def delete_meeting_recordings(meeting_uuid):
         )
         return False, "SKIPPED_NO_UUID"
 
+    encoded_uuid = meeting_uuid
+    # --- FIX: Double-encode the UUID if it contains special characters ---
+    # This is required by the Zoom API for UUIDs that start with / or contain //
+    if encoded_uuid.startswith("/") or "//" in encoded_uuid:
+        print(
+            f"    > Special UUID detected. Applying double URL encoding for: {encoded_uuid}"
+        )
+        # The first quote handles the initial special characters.
+        # The second quote encodes the '%' from the first pass, creating the double encoding.
+        encoded_uuid = urllib.parse.quote(
+            urllib.parse.quote(encoded_uuid, safe=""), safe=""
+        )
+
     # Note: The 'action=trash' parameter can be used to move to trash instead of permanent deletion.
     # For this script, we perform a permanent deletion as requested.
-    url = f"https://api.zoom.us/v2/meetings/{meeting_uuid}/recordings"
+    url = f"https://api.zoom.us/v2/meetings/{encoded_uuid}/recordings"
     try:
         # Use the wrapper for the DELETE request
         make_zoom_api_request("DELETE", url)
