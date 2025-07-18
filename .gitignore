@@ -11,7 +11,7 @@ __pycache__/*
 *downloads*
 
 # Ignore log files
-*.log
+**/*.log
 
 # Ignore Visual Studio Code Workspace
 *.code-workspace
@@ -50,5 +50,17 @@ client_secret.json
 /build
 *.egg-info
 
-#Ignore Google Drive credentials
+# Ignore Google Drive credentials
 client_secrets.json
+
+# Ignore Zoom US CSVs
+zoomus_recordings_*.csv
+
+# Ignore progress json file
+progress_log.json
+
+# Ignore default verification output file
+verification_report*.csv
+
+# Ignore default deletion output file
+deletion_report*.csv
